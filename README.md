@@ -30,7 +30,7 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/baidu2api.git
+git clone https://github.com/dijiaozhibei-top/baidu2api.git
 cd baidu2api
 
 # 安装依赖

@@ -29,7 +29,7 @@ Wrap [chat.baidu.com](https://chat.baidu.com) AI chat into an OpenAI-compatible 
 ### Option 1: Local
 
 ```bash
-git clone https://github.com/your-username/baidu2api.git
+git clone https://github.com/dijiaozhibei-top/baidu2api.git
 cd baidu2api
 pip install -r requirements.txt
 python main.py          # Start server
