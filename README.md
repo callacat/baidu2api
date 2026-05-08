@@ -68,7 +68,7 @@ docker run -d -p 8000:8000 --name baidu2api baidu2api
 
 启动服务后访问 `http://localhost:8000/admin/` 进入管理后台。
 
-默认管理员密钥为 `admin`，可在 `config.json` 中修改。
+首次访问管理后台时，需要创建管理员密码（至少4位）。之后每次访问需使用该密码登录。
 
 管理后台支持：
 - 查看服务状态
@@ -211,7 +211,7 @@ for await (const chunk of stream) {
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `api_keys` | `[]` | API Key 列表，为空时不启用认证 |
-| `admin_key` | `"admin"` | 管理后台访问密钥 |
+| `admin_key` | `""` | 管理后台访问密钥（首次访问时创建） |
 | `toolcall_mode` | `"xml"` | 工具调用模式：`xml` 或 `json` |
 | `max_query_length` | `0` | 最大 prompt 长度，0 表示不限制 |
 

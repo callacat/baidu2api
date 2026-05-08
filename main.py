@@ -38,6 +38,53 @@ app = FastAPI(title="Baidu2API - OpenAI Compatible API", lifespan=lifespan)
 app.include_router(admin_router)
 
 
+WELCOME_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Baidu2API</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;background:#f5f7fa;color:#1f2937;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.wrap{text-align:center;max-width:600px;padding:3rem 2rem}
+h1{font-size:2.5rem;color:#2563eb;margin-bottom:0.5rem}
+.sub{color:#6b7280;font-size:1.1rem;margin-bottom:2.5rem}
+.links{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
+.links a{display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.5rem;border-radius:10px;text-decoration:none;font-weight:600;font-size:0.95rem;transition:all .2s}
+.links a.primary{background:#2563eb;color:#fff}
+.links a.primary:hover{background:#1d4ed8}
+.links a.secondary{background:#fff;color:#374151;border:1px solid #d1d5db;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.links a.secondary:hover{border-color:#2563eb;color:#2563eb}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Baidu2API</h1>
+  <p class="sub" id="subtitle"></p>
+  <div class="links">
+    <a href="/admin/" class="primary" id="adminLink"></a>
+    <a href="/docs" class="secondary" id="docsLink"></a>
+    <a href="https://github.com/dijiaozhibei-top/baidu2api" target="_blank" class="secondary" id="githubLink"></a>
+  </div>
+</div>
+<script>
+const zh = navigator.language.startsWith('zh');
+document.getElementById('subtitle').textContent = zh ? '将 chat.baidu.com 的 AI 对话能力封装为 OpenAI 兼容 API' : 'Wrap chat.baidu.com AI into OpenAI-compatible API';
+document.getElementById('adminLink').textContent = zh ? '管理后台' : 'Admin Panel';
+document.getElementById('docsLink').textContent = zh ? 'API 文档' : 'API Docs';
+document.getElementById('githubLink').textContent = 'GitHub';
+</script>
+</body>
+</html>"""
+
+
+@app.get("/")
+async def welcome():
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=WELCOME_HTML)
+
+
 class UsageInfo(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0

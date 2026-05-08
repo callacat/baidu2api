@@ -58,7 +58,7 @@ docker run -d -p 8000:8000 --name baidu2api baidu2api
 
 After starting the service, visit `http://localhost:8000/admin/` to access the admin panel.
 
-Default admin key is `admin`, configurable in `config.json`.
+On first access, you will be prompted to create an admin password (minimum 4 characters). Subsequent visits require this password to log in.
 
 Admin panel features:
 - View service status
@@ -198,7 +198,7 @@ Config file is `config.json`, supports `BAIDU2API_CONFIG_PATH` environment varia
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `api_keys` | `[]` | API key list, empty = no auth |
-| `admin_key` | `"admin"` | Admin panel access key |
+| `admin_key` | `""` | Admin panel access key (created on first access) |
 | `toolcall_mode` | `"xml"` | Tool calling mode: `xml` or `json` |
 | `max_query_length` | `0` | Max prompt length, 0 = unlimited |
 

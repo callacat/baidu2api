@@ -6,7 +6,7 @@ logger = logging.getLogger("baidu2api")
 
 DEFAULT_CONFIG = {
     "api_keys": [],
-    "admin_key": "admin",
+    "admin_key": "",
     "toolcall_mode": "xml",
     "max_query_length": 0,
 }
@@ -48,7 +48,7 @@ class Config:
 
     @property
     def admin_key(self) -> str:
-        return self._data.get("admin_key", "admin")
+        return self._data.get("admin_key", "")
 
     @admin_key.setter
     def admin_key(self, value: str):
