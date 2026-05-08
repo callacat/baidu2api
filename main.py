@@ -6,11 +6,20 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from baidu_client import BaiduChatClient
+from config import config
+from toolcall import (
+    build_tool_prompt,
+    format_tool_choice_prompt,
+    get_content_before_tool_call,
+    parse_tool_calls,
+    preprocess_messages,
+)
+from admin import admin_router
 
 DEBUG = "debug" in [a.lower() for a in sys.argv[1:]]
 
@@ -26,23 +35,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Baidu2API - OpenAI Compatible API", lifespan=lifespan)
-
-
-class ChatMessage(BaseModel):
-    role: str
-    content: Optional[str] = ""
-    name: Optional[str] = None
-    tool_calls: Optional[list] = None
-    tool_call_id: Optional[str] = None
-
-
-class ChatCompletionRequest(BaseModel):
-    model: str = "smartMode"
-    messages: list[ChatMessage]
-    stream: bool = False
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    tools: Optional[list] = None
+app.include_router(admin_router)
 
 
 class UsageInfo(BaseModel):
@@ -70,87 +63,72 @@ def generate_id() -> str:
     return f"chatcmpl-{uuid.uuid4().hex[:29]}"
 
 
-MAX_QUERY_LENGTH = 30000
+def _check_api_key(request: Request):
+    if not config.api_keys:
+        return
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    key = auth[7:].strip()
+    if key not in config.api_keys:
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
 
-def build_query(messages: list[ChatMessage], tools: Optional[list] = None) -> str:
+def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=None, mode: str = "xml") -> str:
+    processed = preprocess_messages(messages, tools, mode)
+
     parts = []
-
     if tools:
-        tool_lines = []
-        for tool in tools:
-            func = tool.get("function", {})
-            name = func.get("name", "")
-            desc = func.get("description", "")
-            params = func.get("parameters", {})
-            tool_lines.append(f"- {name}: {desc}\n  Parameters: {json.dumps(params, ensure_ascii=False)}")
-        parts.append("# Available Tools\n\nYou have access to the following tools. When you need to call a tool, respond with a JSON block in the following format:\n```json\n{\"name\": \"tool_name\", \"arguments\": {...}}\n```\n\n" + "\n\n".join(tool_lines))
+        parts.append(build_tool_prompt(tools, mode))
+        choice_prompt = format_tool_choice_prompt(tool_choice, tools)
+        if choice_prompt:
+            parts.append(choice_prompt)
 
-    for msg in messages:
-        if msg.role == "assistant" and msg.tool_calls:
-            tc_lines = []
-            for tc in msg.tool_calls:
-                func = tc.get("function", {})
-                tc_lines.append(f"Assistant called tool: {func.get('name', '')}({func.get('arguments', '')})")
-            if msg.content:
-                parts.append(f"Assistant: {msg.content}\n" + "\n".join(tc_lines))
-            else:
-                parts.append("\n".join(tc_lines))
+    for msg in processed:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if not content:
             continue
-
-        if not msg.content:
-            continue
-
-        if msg.role == "system":
-            parts.append(f"System: {msg.content}")
-        elif msg.role == "user":
-            parts.append(f"User: {msg.content}")
-        elif msg.role == "assistant":
-            parts.append(f"Assistant: {msg.content}")
-        elif msg.role == "tool":
-            label = msg.name or msg.tool_call_id or "tool"
-            parts.append(f"Tool({label}): {msg.content}")
+        if role == "system":
+            parts.append(f"System: {content}")
+        elif role == "user":
+            parts.append(f"User: {content}")
+        elif role == "assistant":
+            parts.append(f"Assistant: {content}")
         else:
-            parts.append(f"{msg.role}: {msg.content}")
+            parts.append(f"{role}: {content}")
 
     full = "\n\n".join(parts)
 
-    if len(full) > MAX_QUERY_LENGTH:
-        logger.warning("Query too long (%d chars), truncating to %d", len(full), MAX_QUERY_LENGTH)
+    max_len = config.max_query_length
+    if max_len > 0 and len(full) > max_len:
+        logger.warning("Query too long (%d chars), truncating to %d", len(full), max_len)
         user_msg = ""
         for msg in reversed(messages):
-            if msg.content and msg.role == "user":
-                user_msg = msg.content
+            if msg.get("content") and msg.get("role") == "user":
+                user_msg = msg["content"]
                 break
         if not user_msg:
             for msg in reversed(messages):
-                if msg.content:
-                    user_msg = msg.content
+                if msg.get("content"):
+                    user_msg = msg["content"]
                     break
 
-        system_parts = []
-        tool_parts = []
-        for msg in messages:
-            if msg.role == "system" and msg.content:
-                system_parts.append(msg.content)
-        if tools:
-            for tool in tools:
-                func = tool.get("function", {})
-                name = func.get("name", "")
-                desc = func.get("description", "")
-                params = func.get("parameters", {})
-                tool_parts.append(f"- {name}: {desc}\n  Parameters: {json.dumps(params, ensure_ascii=False)}")
+        system_parts = [msg["content"] for msg in messages if msg.get("role") == "system" and msg.get("content")]
 
         truncated_parts = []
         if tools:
-            truncated_parts.append("# Available Tools\n\nYou have access to the following tools. When you need to call a tool, respond with a JSON block in the following format:\n```json\n{\"name\": \"tool_name\", \"arguments\": {...}}\n```\n\n" + "\n\n".join(tool_parts))
+            truncated_parts.append(build_tool_prompt(tools, mode))
+            choice_prompt = format_tool_choice_prompt(tool_choice, tools)
+            if choice_prompt:
+                truncated_parts.append(choice_prompt)
         if system_parts:
             truncated_parts.append("System: " + "\n\n".join(system_parts))
         truncated_parts.append(f"User: {user_msg}")
 
         truncated = "\n\n".join(truncated_parts)
-        if len(truncated) > MAX_QUERY_LENGTH:
-            full = user_msg[:MAX_QUERY_LENGTH] if user_msg else full[:MAX_QUERY_LENGTH]
+        if len(truncated) > max_len:
+            full = user_msg[:max_len] if user_msg else full[:max_len]
         else:
             full = truncated
 
@@ -163,22 +141,38 @@ async def list_models():
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
-    query = build_query(request.messages, request.tools)
+async def chat_completions(request: Request):
+    _check_api_key(request)
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    model = body.get("model", "smartMode")
+    messages = body.get("messages", [])
+    stream = body.get("stream", False)
+    tools = body.get("tools")
+    tool_choice = body.get("tool_choice")
+    mode = config.toolcall_mode
+
+    query = build_query(messages, tools, tool_choice, mode)
     if not query:
         raise HTTPException(status_code=400, detail="No message content provided")
 
     completion_id = generate_id()
     created = int(time.time())
+    has_tools = tools is not None
 
-    logger.info("Chat request: model=%s, stream=%s, query_len=%d", request.model, request.stream, len(query))
+    logger.info("Chat request: model=%s, stream=%s, query_len=%d, has_tools=%s, mode=%s",
+                model, stream, len(query), has_tools, mode)
     if DEBUG:
         logger.debug("Full query: %s", query[:500])
-        logger.debug("Full messages: %s", json.dumps([m.model_dump() for m in request.messages], ensure_ascii=False))
+        logger.debug("Full messages: %s", json.dumps(messages, ensure_ascii=False)[:500])
 
-    if request.stream:
+    if stream:
         return StreamingResponse(
-            _stream_response(query, request.model, completion_id, created),
+            _stream_response(query, model, completion_id, created, has_tools, mode),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -188,11 +182,11 @@ async def chat_completions(request: ChatCompletionRequest):
         )
     else:
         return await _non_stream_response(
-            query, request.model, completion_id, created
+            query, model, completion_id, created, has_tools, mode
         )
 
 
-async def _stream_response(query: str, model: str, completion_id: str, created: int):
+async def _stream_response(query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str):
     full_content = ""
     full_thinking = ""
     try:
@@ -227,7 +221,31 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                 }
                 yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
 
-            if client.is_end_turn(event):
+            if client.is_end_turn(event) or client.is_finished(event):
+                if has_tools:
+                    tool_calls = parse_tool_calls(full_content, mode)
+                    if tool_calls:
+                        prefix_content = get_content_before_tool_call(full_content, mode)
+                        tc_chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {
+                                    "content": prefix_content,
+                                    "tool_calls": tool_calls,
+                                },
+                                "finish_reason": "tool_calls",
+                            }],
+                        }
+                        yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
+                        yield "data: [DONE]\n\n"
+                        logger.info("Stream completed with tool calls: content_len=%d, tool_calls=%d",
+                                    len(full_content), len(tool_calls))
+                        return
+
                 chunk_data = {
                     "id": completion_id,
                     "object": "chat.completion.chunk",
@@ -261,7 +279,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
 
 
 async def _non_stream_response(
-    query: str, model: str, completion_id: str, created: int
+    query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str
 ):
     full_content = ""
     full_thinking = ""
@@ -278,14 +296,28 @@ async def _non_stream_response(
         if content:
             full_content += content
 
-        if client.is_end_turn(event):
+        if client.is_end_turn(event) or client.is_finished(event):
             break
 
     message = {"role": "assistant", "content": full_content}
+    finish_reason = "stop"
+
+    if has_tools:
+        tool_calls = parse_tool_calls(full_content, mode)
+        if tool_calls:
+            prefix_content = get_content_before_tool_call(full_content, mode)
+            message = {
+                "role": "assistant",
+                "content": prefix_content,
+                "tool_calls": tool_calls,
+            }
+            finish_reason = "tool_calls"
+
     if full_thinking:
         message["reasoning_content"] = full_thinking
 
-    logger.info("Non-stream completed: content_len=%d, thinking_len=%d", len(full_content), len(full_thinking))
+    logger.info("Non-stream completed: content_len=%d, thinking_len=%d, finish_reason=%s",
+                len(full_content), len(full_thinking), finish_reason)
     if DEBUG:
         logger.debug("Non-stream full content: %s", full_content[:500])
         if full_thinking:
@@ -295,7 +327,7 @@ async def _non_stream_response(
         id=completion_id,
         created=created,
         model=model,
-        choices=[ChatCompletionChoice(message=message)],
+        choices=[ChatCompletionChoice(message=message, finish_reason=finish_reason)],
     )
 
 

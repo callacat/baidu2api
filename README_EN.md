@@ -7,12 +7,14 @@ Wrap [chat.baidu.com](https://chat.baidu.com) AI chat into an OpenAI-compatible 
 ## Features
 
 - **OpenAI Compatible** — Full support for `/v1/chat/completions` and `/v1/models`
-- **Multi-Model** — DeepSeek-V4, DeepSeek-R1, ERINE-4.5, Smart Mode
+- **Multi-Model** — DeepSeek-V4, DeepSeek-R1, ERNIE-4.5, Smart Mode
 - **Streaming** — SSE streaming output, compatible with all OpenAI SDKs
 - **Chain of Thought** — DeepSeek-R1 reasoning via `reasoning_content` field
-- **Tool Calling** — OpenAI-format tools definition, auto-injected into prompt
+- **Dual Tool Calling** — XML (Toolify-style) and JSON (DS2API-style) function calling mechanisms
+- **API Key Auth** — Optional API key authentication to protect your API
+- **Web Admin Panel** — Visual configuration management, API key management, tool calling mode
 - **Context Isolation** — Each request is independent, no cross-request session leakage
-- **Long Context** — Supports up to 30000 characters of prompt (including system/tools/history)
+- **Unlimited Context** — No prompt length limit by default, configurable max length
 - **Zero Config** — No Baidu account or API key required, works out of the box
 
 ## Supported Models
@@ -21,7 +23,7 @@ Wrap [chat.baidu.com](https://chat.baidu.com) AI chat into an OpenAI-compatible 
 |----------|-------------|----------|-------------|
 | `deepseek-v4-pro` | DeepSeek-V4 | ❌ | DeepSeek V4, 1M context |
 | `deepseek-r1` | DeepSeek-R1 | ✅ | DeepSeek R1 reasoning model |
-| `ernie-4.5-turbo` | ERINE-4.5 | ❌ | ERNIE 4.5 |
+| `ernie-4.5-turbo` | ERNIE-4.5 | ❌ | ERNIE 4.5 |
 | `smartMode` | Smart Mode | ❌ | Baidu intelligent routing |
 
 ## Quick Start
@@ -52,6 +54,66 @@ docker build -t baidu2api .
 docker run -d -p 8000:8000 --name baidu2api baidu2api
 ```
 
+## Web Admin Panel
+
+After starting the service, visit `http://localhost:8000/admin/` to access the admin panel.
+
+Default admin key is `admin`, configurable in `config.json`.
+
+Admin panel features:
+- View service status
+- Switch tool calling mode (XML / JSON)
+- Manage API keys (add/delete)
+- Modify configuration
+
+## API Key Authentication
+
+Authentication is disabled by default. Add API keys via the admin panel to enable it.
+
+When enabled, all `/v1/chat/completions` requests require the `Authorization: Bearer <your-api-key>` header.
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "deepseek-v4-pro", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+## Tool Calling
+
+Two function calling mechanisms are supported, switchable via the admin panel:
+
+### XML Mode (Toolify-style, default)
+
+Uses XML tag format to trigger tool calls, better compatibility:
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v4-pro",
+    "messages": [{"role": "user", "content": "Weather in Beijing?"}],
+    "tools": [{
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get weather for a location",
+        "parameters": {
+          "type": "object",
+          "properties": {"location": {"type": "string"}},
+          "required": ["location"]
+        }
+      }
+    }]
+  }'
+```
+
+### JSON Mode (DS2API-style)
+
+Uses JSON format to trigger tool calls, compatible with the DS2API project.
+
+Both modes support automatic fallback: when the primary mode fails to parse, it automatically tries the other mode.
+
 ## API Reference
 
 ### List Models
@@ -81,29 +143,6 @@ curl http://localhost:8000/v1/chat/completions \
     "model": "deepseek-r1",
     "messages": [{"role": "user", "content": "What is 1+1?"}],
     "stream": true
-  }'
-```
-
-### With Tools
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek-v4-pro",
-    "messages": [{"role": "user", "content": "Weather in Beijing?"}],
-    "tools": [{
-      "type": "function",
-      "function": {
-        "name": "get_weather",
-        "description": "Get weather for a location",
-        "parameters": {
-          "type": "object",
-          "properties": {"location": {"type": "string"}},
-          "required": ["location"]
-        }
-      }
-    }]
   }'
 ```
 
@@ -150,15 +189,27 @@ for await (const chunk of stream) {
 
 ### Claude Code / Cursor / Continue
 
-Set the API Base URL to `http://localhost:8000/v1` and fill any value for the API Key.
+Set the API Base URL to `http://localhost:8000/v1` and fill any value for the API Key (when auth is disabled).
+
+## Configuration
+
+Config file is `config.json`, supports `BAIDU2API_CONFIG_PATH` environment variable for custom path.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `api_keys` | `[]` | API key list, empty = no auth |
+| `admin_key` | `"admin"` | Admin panel access key |
+| `toolcall_mode` | `"xml"` | Tool calling mode: `xml` or `json` |
+| `max_query_length` | `0` | Max prompt length, 0 = unlimited |
 
 ## How It Works
 
 1. **Token Acquisition** — Visit chat.baidu.com, extract token and lid from HTML
 2. **Signature Generation** — `base64(token|md5(query)|timestamp|lid)-lid-3`
 3. **Message Flattening** — Convert OpenAI multi-message format into single text prompt
-4. **SSE Streaming** — Parse Baidu SSE events, convert to OpenAI-compatible SSE format
-5. **Context Isolation** — Shared HTTP client for cookies, empty ori_lid per request
+4. **Tool Injection** — Inject tool definitions into prompt based on configured mode
+5. **SSE Streaming** — Parse Baidu SSE events, convert to OpenAI-compatible SSE format
+6. **Context Isolation** — Shared HTTP client for cookies, empty ori_lid per request
 
 ## Disclaimer
 
@@ -169,7 +220,8 @@ Set the API Base URL to `http://localhost:8000/v1` and fill any value for the AP
 
 ## Acknowledgements
 
-- [ds2api](https://github.com/CJackHwang/ds2api) — Architecture reference for wrapping web chat into OpenAI API
+- [ds2api](https://github.com/CJackHwang/ds2api) — Architecture reference and JSON tool calling mechanism
+- [toolify](https://github.com/funnycups/toolify) — XML tool calling mechanism reference
 
 ## License
 

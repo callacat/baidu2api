@@ -33,6 +33,8 @@ class BaiduChatClient:
         {"id": "smartMode", "object": "model", "created": 0, "owned_by": "baidu"},
     ]
 
+    X_CHAT_MESSAGE_QUERY_LIMIT = 200
+
     def __init__(self):
         self._token: Optional[str] = None
         self._lid: Optional[str] = None
@@ -107,7 +109,7 @@ class BaiduChatClient:
         return model_name.startswith("DeepSeek")
 
     def _build_request_body(self, query: str, model_name: str, chat_token: str) -> dict:
-        body = {
+        return {
             "message": {
                 "inputMethod": "chat_search",
                 "isRebuild": False,
@@ -171,9 +173,6 @@ class BaiduChatClient:
             "setype": "csaitab",
             "rank": 1,
         }
-        return body
-
-    X_CHAT_MESSAGE_QUERY_LIMIT = 200
 
     def _build_headers(self, query: str, model_name: str) -> dict:
         is_deepseek = self._is_deepseek_model(model_name)
@@ -214,7 +213,6 @@ class BaiduChatClient:
         headers = self._build_headers(query, model_name)
 
         logger.info("Request: model=%s -> %s, query_len=%d", model, model_name, len(query))
-        logger.debug("Request headers: %s", json.dumps(headers, ensure_ascii=False)[:300])
         logger.debug("Request body query: %s", query[:200])
 
         try:
@@ -297,8 +295,21 @@ class BaiduChatClient:
             component = generator.get("component", "")
             if component == "markdown-yiyan":
                 return generator.get("data", {}).get("value", "")
+            if component and component not in ("thinkingSteps", "searchResult", "questionClosely"):
+                value = generator.get("data", {}).get("value", "")
+                if value:
+                    return value
         except (KeyError, TypeError):
             pass
+
+        try:
+            items = data["data"]["message"]["content"].get("items", [])
+            for item in items:
+                if item.get("type") == "text":
+                    return item.get("data", {}).get("text", "")
+        except (KeyError, TypeError):
+            pass
+
         return None
 
     @staticmethod
@@ -335,13 +346,6 @@ class BaiduChatClient:
             return event["data"]["data"]["message"]["metaData"].get("endTurn", False)
         except (KeyError, TypeError):
             return False
-
-    @staticmethod
-    def get_session_id(event: dict) -> Optional[str]:
-        try:
-            return event["data"].get("sessionId")
-        except (KeyError, TypeError):
-            return None
 
     async def close(self):
         if self._client and not self._client.is_closed:

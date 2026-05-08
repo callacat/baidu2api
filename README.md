@@ -7,13 +7,15 @@
 ## 功能特性
 
 - **OpenAI 兼容** — 完整支持 `/v1/chat/completions` 和 `/v1/models` 接口
-- **多模型支持** — DeepSeek-V4、DeepSeek-R1、ERINE-4.5、智能模式
+- **多模型支持** — DeepSeek-V4、DeepSeek-R1、ERNIE-4.5、智能模式
 - **流式输出** — 支持 SSE 流式响应，兼容所有 OpenAI SDK
 - **思维链输出** — DeepSeek-R1 的推理过程通过 `reasoning_content` 字段输出
-- **工具调用** — 支持 OpenAI 格式的 tools 定义，自动注入 prompt
+- **双模式工具调用** — 支持 XML（Toolify 风格）和 JSON（DS2API 风格）两种函数调用机制
+- **API Key 认证** — 可选的 API Key 认证机制，保护你的 API 不被滥用
+- **Web 管理后台** — 可视化管理配置、API Key、工具调用模式
 - **上下文隔离** — 每次请求独立，不会泄漏跨请求的会话信息
-- **长上下文** — 支持最长 30000 字符的 prompt（含 system/tools/历史消息）
-- **零配置** — 无需百度账号，无需 API Key，开箱即用
+- **无限上下文** — 默认不限制 prompt 长度，可配置最大长度
+- **零配置启动** — 无需百度账号，开箱即用
 
 ## 支持的模型
 
@@ -21,7 +23,7 @@
 |---------|---------|--------|------|
 | `deepseek-v4-pro` | DeepSeek-V4 | ❌ | DeepSeek V4，1M 上下文 |
 | `deepseek-r1` | DeepSeek-R1 | ✅ | DeepSeek R1 推理模型 |
-| `ernie-4.5-turbo` | ERINE-4.5 | ❌ | 文心 4.5 |
+| `ernie-4.5-turbo` | ERNIE-4.5 | ❌ | 文心 4.5 |
 | `smartMode` | 智能模式 | ❌ | 百度智能路由 |
 
 ## 快速开始
@@ -62,6 +64,66 @@ docker build -t baidu2api .
 docker run -d -p 8000:8000 --name baidu2api baidu2api
 ```
 
+## Web 管理后台
+
+启动服务后访问 `http://localhost:8000/admin/` 进入管理后台。
+
+默认管理员密钥为 `admin`，可在 `config.json` 中修改。
+
+管理后台支持：
+- 查看服务状态
+- 切换工具调用模式（XML / JSON）
+- 管理 API Key（增删）
+- 修改配置
+
+## API Key 认证
+
+默认不启用认证。通过管理后台添加 API Key 后自动启用认证。
+
+启用后，所有 `/v1/chat/completions` 请求需携带 `Authorization: Bearer <your-api-key>` 头。
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "deepseek-v4-pro", "messages": [{"role": "user", "content": "你好"}]}'
+```
+
+## 工具调用
+
+支持两种函数调用机制，可在管理后台切换：
+
+### XML 模式（Toolify 风格，默认）
+
+使用 XML 标签格式触发工具调用，兼容性更好：
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v4-pro",
+    "messages": [{"role": "user", "content": "北京天气怎么样？"}],
+    "tools": [{
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "获取指定城市的天气",
+        "parameters": {
+          "type": "object",
+          "properties": {"location": {"type": "string", "description": "城市名称"}},
+          "required": ["location"]
+        }
+      }
+    }]
+  }'
+```
+
+### JSON 模式（DS2API 风格）
+
+使用 JSON 格式触发工具调用，与 DS2API 项目兼容。
+
+两种模式均支持自动回退：当主模式解析失败时，会自动尝试另一种模式解析。
+
 ## API 文档
 
 ### 获取模型列表
@@ -77,9 +139,7 @@ curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-v4-pro",
-    "messages": [
-      {"role": "user", "content": "你好"}
-    ],
+    "messages": [{"role": "user", "content": "你好"}],
     "stream": false
   }'
 ```
@@ -91,55 +151,8 @@ curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-r1",
-    "messages": [
-      {"role": "user", "content": "1+1等于几？"}
-    ],
+    "messages": [{"role": "user", "content": "1+1等于几？"}],
     "stream": true
-  }'
-```
-
-### 带工具调用
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek-v4-pro",
-    "messages": [
-      {"role": "user", "content": "北京天气怎么样？"}
-    ],
-    "tools": [
-      {
-        "type": "function",
-        "function": {
-          "name": "get_weather",
-          "description": "获取指定城市的天气",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "location": {"type": "string", "description": "城市名称"}
-            },
-            "required": ["location"]
-          }
-        }
-      }
-    ]
-  }'
-```
-
-### 多轮对话
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek-v4-pro",
-    "messages": [
-      {"role": "system", "content": "你是一个有帮助的助手"},
-      {"role": "user", "content": "我叫小明"},
-      {"role": "assistant", "content": "你好小明！"},
-      {"role": "user", "content": "我叫什么名字？"}
-    ]
   }'
 ```
 
@@ -189,14 +202,28 @@ for await (const chunk of stream) {
 
 ### Claude Code / Cursor / Continue 等工具
 
-在工具设置中将 API Base URL 设为 `http://localhost:8000/v1`，API Key 填任意值即可。
+在工具设置中将 API Base URL 设为 `http://localhost:8000/v1`，API Key 填任意值即可（未启用认证时）。
+
+## 配置说明
+
+配置文件为 `config.json`，支持环境变量 `BAIDU2API_CONFIG_PATH` 指定路径。
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `api_keys` | `[]` | API Key 列表，为空时不启用认证 |
+| `admin_key` | `"admin"` | 管理后台访问密钥 |
+| `toolcall_mode` | `"xml"` | 工具调用模式：`xml` 或 `json` |
+| `max_query_length` | `0` | 最大 prompt 长度，0 表示不限制 |
 
 ## 项目结构
 
 ```
 baidu2api/
-├── baidu_client.py    # 百度聊天 API 客户端（Token 管理、请求构建、SSE 解析）
-├── main.py            # FastAPI 服务（OpenAI 格式适配、消息拼接、流式输出）
+├── main.py            # FastAPI 服务（OpenAI 格式适配、流式输出）
+├── baidu_client.py    # 百度聊天 API 客户端（Token 管理、SSE 解析）
+├── toolcall.py        # 双模式工具调用（XML + JSON）
+├── config.py          # 配置管理（JSON 持久化）
+├── admin.py           # Web 管理后台（认证、API Key 管理）
 ├── requirements.txt   # Python 依赖
 ├── Dockerfile         # Docker 构建文件
 ├── docker-compose.yml # Docker Compose 配置
@@ -211,8 +238,9 @@ baidu2api/
 1. **Token 获取** — 访问 chat.baidu.com 首页，从页面 HTML 中提取 token 和 lid
 2. **签名生成** — 使用 `base64(token|md5(query)|timestamp|lid)-lid-3` 生成 chat_token
 3. **消息拼接** — 将 OpenAI 多消息格式（system/user/assistant/tool）扁平化为单条文本
-4. **SSE 流式** — 解析百度 SSE 事件流，实时转换为 OpenAI 兼容的 SSE 格式
-5. **上下文隔离** — 共享 HTTP 客户端保持 Cookie，但每次请求使用空 ori_lid 确保独立
+4. **工具注入** — 根据配置模式将工具定义注入 prompt，引导模型输出结构化调用
+5. **SSE 流式** — 解析百度 SSE 事件流，实时转换为 OpenAI 兼容的 SSE 格式
+6. **上下文隔离** — 共享 HTTP 客户端保持 Cookie，但每次请求使用空 ori_lid 确保独立
 
 ## 注意事项
 
@@ -223,7 +251,8 @@ baidu2api/
 
 ## 致谢
 
-- [ds2api](https://github.com/CJackHwang/ds2api) — 提供了将 Web 聊天封装为 OpenAI API 的架构参考
+- [ds2api](https://github.com/CJackHwang/ds2api) — 提供了将 Web 聊天封装为 OpenAI API 的架构参考及 JSON 工具调用机制
+- [toolify](https://github.com/funnycups/toolify) — 提供了 XML 工具调用机制的参考
 
 ## License
 
