@@ -16,16 +16,12 @@ jobs:
         include:
           - os: windows-latest
             target: windows-amd64
-            ext: .exe
           - os: ubuntu-latest
             target: linux-amd64
-            ext: ''
           - os: macos-latest
             target: macos-amd64
-            ext: ''
           - os: macos-14
             target: macos-arm64
-            ext: ''
 
     runs-on: ${{ matrix.os }}
 
@@ -42,23 +38,24 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
         run: |
           pyinstaller --onefile --name baidu2api-${{ matrix.target }} main.py
+          copy dist\baidu2api-${{ matrix.target }}.exe baidu2api-${{ matrix.target }}
 
-      - name: Rename binary
-        shell: bash
+      - name: Build with PyInstaller (Unix)
+        if: runner.os != 'Windows'
         run: |
-          cd dist
-          if [ -f "baidu2api-${{ matrix.target }}${{ matrix.ext }}" ]; then
-            mv "baidu2api-${{ matrix.target }}${{ matrix.ext }}" "baidu2api-${{ matrix.target }}"
-          fi
+          pyinstaller --onefile --name baidu2api-${{ matrix.target }} main.py
+          cp dist/baidu2api-${{ matrix.target }} baidu2api-${{ matrix.target }}
+          chmod +x baidu2api-${{ matrix.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: baidu2api-${{ matrix.target }}
-          path: dist/baidu2api-${{ matrix.target }}
+          path: baidu2api-${{ matrix.target }}
 
   release:
     needs: build
@@ -71,6 +68,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f -ls
 
       - name: Create release
         uses: softprops/action-gh-release@v2
