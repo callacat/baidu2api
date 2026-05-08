@@ -1,0 +1,110 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-amd64
+            ext: .exe
+          - os: ubuntu-latest
+            target: linux-amd64
+            ext: ''
+          - os: macos-latest
+            target: macos-amd64
+            ext: ''
+          - os: macos-14
+            target: macos-arm64
+            ext: ''
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --onefile --name baidu2api-${{ matrix.target }} main.py
+
+      - name: Rename binary
+        shell: bash
+        run: |
+          cd dist
+          if [ -f "baidu2api-${{ matrix.target }}${{ matrix.ext }}" ]; then
+            mv "baidu2api-${{ matrix.target }}${{ matrix.ext }}" "baidu2api-${{ matrix.target }}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: baidu2api-${{ matrix.target }}
+          path: dist/baidu2api-${{ matrix.target }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || 'v1.0.0' }}
+          name: Release ${{ github.ref_name || 'v1.0.0' }}
+          body: |
+            ## Baidu2API Release
+
+            将 chat.baidu.com 的 AI 对话能力封装为 OpenAI 兼容 API。
+
+            ### 下载
+
+            | 文件 | 平台 |
+            |------|------|
+            | `baidu2api-windows-amd64` | Windows x64 |
+            | `baidu2api-linux-amd64` | Linux x64 |
+            | `baidu2api-macos-amd64` | macOS Intel |
+            | `baidu2api-macos-arm64` | macOS Apple Silicon |
+
+            ### 使用
+
+            ```bash
+            # Linux/macOS
+            chmod +x baidu2api-linux-amd64
+            ./baidu2api-linux-amd64
+
+            # Windows
+            baidu2api-windows-amd64.exe
+
+            # Debug mode
+            ./baidu2api-linux-amd64 debug
+            ```
+          files: |
+            artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
