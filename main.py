@@ -19,7 +19,7 @@ from toolcall import (
     parse_tool_calls,
     preprocess_messages,
 )
-from admin import admin_router
+from admin import admin_router, increment_request_count
 
 DEBUG = "debug" in [a.lower() for a in sys.argv[1:]]
 
@@ -111,13 +111,17 @@ def generate_id() -> str:
 
 
 def _check_api_key(request: Request):
-    if not config.api_keys:
+    if not config.api_keys and not config.admin_key:
         return
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Unauthorized")
     key = auth[7:].strip()
-    if key not in config.api_keys:
+    if config.admin_key and key == config.admin_key:
+        return
+    if config.api_keys and key in config.api_keys:
+        return
+    if config.api_keys or config.admin_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
@@ -125,7 +129,7 @@ def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=
     processed = preprocess_messages(messages, tools, mode)
 
     parts = []
-    if tools:
+    if tools and mode != "none":
         parts.append(build_tool_prompt(tools, mode))
         choice_prompt = format_tool_choice_prompt(tool_choice, tools)
         if choice_prompt:
@@ -164,7 +168,7 @@ def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=
         system_parts = [msg["content"] for msg in messages if msg.get("role") == "system" and msg.get("content")]
 
         truncated_parts = []
-        if tools:
+        if tools and mode != "none":
             truncated_parts.append(build_tool_prompt(tools, mode))
             choice_prompt = format_tool_choice_prompt(tool_choice, tools)
             if choice_prompt:
@@ -190,6 +194,7 @@ async def list_models():
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     _check_api_key(request)
+    increment_request_count()
 
     try:
         body = await request.json()
@@ -209,7 +214,7 @@ async def chat_completions(request: Request):
 
     completion_id = generate_id()
     created = int(time.time())
-    has_tools = tools is not None
+    has_tools = tools is not None and mode != "none"
 
     logger.info("Chat request: model=%s, stream=%s, query_len=%d, has_tools=%s, mode=%s",
                 model, stream, len(query), has_tools, mode)

@@ -18,6 +18,11 @@ class Config:
     def __init__(self):
         self._data = dict(DEFAULT_CONFIG)
         self.load()
+        env_key = os.environ.get("BAIDU2API_ADMIN_KEY", "")
+        if env_key and not self._data.get("admin_key"):
+            self._data["admin_key"] = env_key
+            self.save()
+            logger.info("Admin key set from environment variable")
 
     def load(self):
         try:
@@ -71,9 +76,14 @@ class Config:
         self._data["max_query_length"] = value
 
     def to_dict(self) -> dict:
-        return dict(self._data)
+        d = dict(self._data)
+        if d.get("admin_key"):
+            d["admin_key"] = d["admin_key"][:3] + "*" * (len(d["admin_key"]) - 3)
+        return d
 
     def update(self, data: dict):
+        if "admin_key" in data and data["admin_key"].endswith("*"):
+            del data["admin_key"]
         self._data.update(data)
         self.save()
 
