@@ -27,9 +27,6 @@ jobs:
           - os: ubuntu-24.04-arm
             target: linux-arm64
             ext: ''
-          - os: macos-13
-            target: macos-amd64
-            ext: ''
           - os: macos-latest
             target: macos-arm64
             ext: ''
@@ -119,7 +116,6 @@ jobs:
             | `baidu2api-windows-arm64.exe` / `.zip` | Windows ARM64 |
             | `baidu2api-linux-amd64` / `.zip` | Linux x64 |
             | `baidu2api-linux-arm64` / `.zip` | Linux ARM64 |
-            | `baidu2api-macos-amd64` / `.zip` | macOS Intel |
             | `baidu2api-macos-arm64` / `.zip` | macOS Apple Silicon |
 
             每个平台提供两种下载方式：独立二进制文件和 ZIP 压缩包。
