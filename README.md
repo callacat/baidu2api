@@ -276,6 +276,6 @@ baidu2api/
 
 ## 许可证
 
-[GPL-3.0](LICENSE)
+[AGPL-3.0](LICENSE)
 
-本项目集成了 [toolify](https://github.com/funnycups/toolify) 和 [ds2api](https://github.com/CJackHwang/ds2api) 的代码，均采用 GPL-3.0 许可证。
+本项目集成了 [toolify](https://github.com/funnycups/toolify)（GPL-3.0）和 [ds2api](https://github.com/CJackHwang/ds2api)（AGPL-3.0）的代码，因此采用 AGPL-3.0 许可证。
