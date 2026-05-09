@@ -341,7 +341,7 @@ button.success:hover{background:#15803d}
 <script>
 const I18N = """ + json.dumps(I18N, ensure_ascii=False) + """;
 let lang = (navigator.language || navigator.userLanguage || '').startsWith('zh') ? 'zh' : 'en';
-let adminKey = '';
+let adminKey = sessionStorage.getItem('adminKey') || '';
 
 function t(key) { return I18N[lang][key] || key; }
 
@@ -401,6 +401,7 @@ async function api(method, path, body) {
   const r = await fetch('/admin' + path, opts);
   if (r.status === 401) {
     adminKey = '';
+    sessionStorage.removeItem('adminKey');
     showLogin();
     return null;
   }
@@ -412,6 +413,8 @@ async function checkInit() {
   const data = await r.json();
   if (!data.initialized) {
     showInit();
+  } else if (adminKey) {
+    load();
   } else {
     showLogin();
   }
@@ -453,6 +456,7 @@ async function doInit() {
   });
   if (r.ok) {
     adminKey = key;
+    sessionStorage.setItem('adminKey', key);
     showMain();
     load();
   } else {
@@ -463,6 +467,7 @@ async function doInit() {
 
 function login() {
   adminKey = document.getElementById('loginKey').value;
+  sessionStorage.setItem('adminKey', adminKey);
   load();
 }
 
@@ -546,6 +551,7 @@ async function changePassword() {
   if (r) {
     showToast(t('passwordSuccess'), 'success');
     adminKey = newKey;
+    sessionStorage.setItem('adminKey', newKey);
     document.getElementById('newPassword').value = '';
     document.getElementById('newPasswordConfirm').value = '';
   }

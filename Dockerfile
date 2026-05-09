@@ -5,8 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY baidu_client.py .
-COPY main.py .
+COPY *.py .
 
 EXPOSE 8000
 

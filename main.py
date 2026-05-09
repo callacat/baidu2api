@@ -13,11 +13,26 @@ from pydantic import BaseModel
 from baidu_client import BaiduChatClient
 from config import config
 from toolcall import (
+    StreamingFunctionCallDetector,
     build_tool_prompt,
     format_tool_choice_prompt,
     get_content_before_tool_call,
+    get_trigger_signal,
     parse_tool_calls,
     preprocess_messages,
+    set_current_tools,
+    validate_parsed_tools,
+    parse_function_calls_xml,
+    _convert_parsed_to_openai,
+    _classify_fc_failure,
+    _diagnose_fc_parse_error,
+    get_fc_error_retry_prompt,
+    get_fc_continuation_prompt,
+    _is_continuation_response,
+    _merge_truncated_and_continuation,
+    ENABLE_FC_ERROR_RETRY,
+    FC_ERROR_RETRY_MAX_ATTEMPTS,
+    find_last_trigger_signal_outside_think,
 )
 from admin import admin_router, increment_request_count
 
@@ -130,10 +145,10 @@ def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=
 
     parts = []
     if tools and mode != "none":
-        parts.append(build_tool_prompt(tools, mode))
+        parts.append(f"System: {build_tool_prompt(tools, mode)}")
         choice_prompt = format_tool_choice_prompt(tool_choice, tools)
         if choice_prompt:
-            parts.append(choice_prompt)
+            parts.append(f"System: {choice_prompt}")
 
     for msg in processed:
         role = msg.get("role", "")
@@ -169,10 +184,10 @@ def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=
 
         truncated_parts = []
         if tools and mode != "none":
-            truncated_parts.append(build_tool_prompt(tools, mode))
+            truncated_parts.append(f"System: {build_tool_prompt(tools, mode)}")
             choice_prompt = format_tool_choice_prompt(tool_choice, tools)
             if choice_prompt:
-                truncated_parts.append(choice_prompt)
+                truncated_parts.append(f"System: {choice_prompt}")
         if system_parts:
             truncated_parts.append("System: " + "\n\n".join(system_parts))
         truncated_parts.append(f"User: {user_msg}")
@@ -208,6 +223,8 @@ async def chat_completions(request: Request):
     tool_choice = body.get("tool_choice")
     mode = config.toolcall_mode
 
+    set_current_tools(tools)
+
     query = build_query(messages, tools, tool_choice, mode)
     if not query:
         raise HTTPException(status_code=400, detail="No message content provided")
@@ -224,7 +241,7 @@ async def chat_completions(request: Request):
 
     if stream:
         return StreamingResponse(
-            _stream_response(query, model, completion_id, created, has_tools, mode),
+            _stream_response(query, model, completion_id, created, has_tools, mode, tools),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -234,13 +251,96 @@ async def chat_completions(request: Request):
         )
     else:
         return await _non_stream_response(
-            query, model, completion_id, created, has_tools, mode
+            query, model, completion_id, created, has_tools, mode, tools, messages
         )
 
 
-async def _stream_response(query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str):
+async def _attempt_fc_retry(
+    content: str,
+    trigger_signal: str,
+    messages: list[dict],
+    tools: Optional[list],
+    model: str,
+    mode: str,
+) -> Optional[list[dict]]:
+    if not ENABLE_FC_ERROR_RETRY:
+        return None
+
+    max_attempts = FC_ERROR_RETRY_MAX_ATTEMPTS
+    current_content = content
+    current_messages = messages.copy()
+
+    for attempt in range(max_attempts):
+        if find_last_trigger_signal_outside_think(current_content, trigger_signal) == -1:
+            logger.debug("No trigger signal found outside think blocks; not a function call attempt")
+            return None
+
+        parsed = parse_function_calls_xml(current_content, trigger_signal)
+        if parsed:
+            validation_error = validate_parsed_tools(parsed, tools or [])
+            if not validation_error:
+                if attempt > 0:
+                    logger.info(f"Function call parsing succeeded on retry attempt {attempt + 1}")
+                return _convert_parsed_to_openai(parsed)
+
+        if attempt >= max_attempts - 1:
+            logger.warning(f"Function call parsing failed after {max_attempts} attempts")
+            return None
+
+        failure_type = _classify_fc_failure(current_content, trigger_signal)
+        if failure_type == "no_fc":
+            return None
+
+        error_details = _diagnose_fc_parse_error(current_content, trigger_signal)
+
+        if failure_type == "truncated":
+            retry_prompt = get_fc_continuation_prompt(current_content, error_details)
+            logger.info(f"Function call output truncated, requesting continuation {attempt + 2}/{max_attempts}")
+        else:
+            retry_prompt = get_fc_error_retry_prompt(current_content, error_details)
+            logger.info(f"Function call syntax error, requesting rewrite {attempt + 2}/{max_attempts}")
+
+        retry_messages = current_messages + [
+            {"role": "assistant", "content": current_content},
+            {"role": "user", "content": retry_prompt}
+        ]
+
+        try:
+            retry_query = build_query(retry_messages, tools, mode=mode)
+            retry_content = ""
+            async for event in client.chat_stream(retry_query, model):
+                if event["type"] != "message":
+                    continue
+                c = client.extract_content(event)
+                if c:
+                    retry_content += c
+                if client.is_end_turn(event) or client.is_finished(event):
+                    break
+
+            if not retry_content:
+                logger.warning("Retry response is empty")
+                return None
+
+            if failure_type == "truncated" and _is_continuation_response(retry_content, trigger_signal):
+                current_content = _merge_truncated_and_continuation(current_content, retry_content)
+                logger.info(f"Merged continuation, total length: {len(current_content)}")
+            else:
+                current_content = retry_content
+
+            current_messages = retry_messages
+        except Exception as e:
+            logger.error(f"Retry request failed: {e}")
+            return None
+
+    return None
+
+
+async def _stream_response(query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str, tools: Optional[list] = None):
     full_content = ""
     full_thinking = ""
+    trigger_signal = get_trigger_signal() if has_tools else None
+    detector = StreamingFunctionCallDetector(trigger_signal) if has_tools else None
+
     try:
         async for event in client.chat_stream(query, model):
             if event["type"] == "basedata":
@@ -263,18 +363,75 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
 
             content = client.extract_content(event)
             if content:
-                full_content += content
-                chunk_data = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model,
-                    "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
-                }
-                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                if detector:
+                    is_detected, content_to_yield = detector.process_chunk(content)
+                    if content_to_yield:
+                        full_content += content_to_yield
+                        chunk_data = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [{"index": 0, "delta": {"content": content_to_yield}, "finish_reason": None}],
+                        }
+                        yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                    if is_detected:
+                        continue
+                else:
+                    full_content += content
+                    chunk_data = {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": model,
+                        "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
+                    }
+                    yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
 
             if client.is_end_turn(event) or client.is_finished(event):
-                if has_tools:
+                if detector and detector.state == "tool_parsing":
+                    parsed = detector.finalize()
+                    if parsed:
+                        validation_error = validate_parsed_tools(parsed, tools or [])
+                        if validation_error:
+                            logger.info(f"Tool/schema validation failed in stream finalize: {validation_error}")
+                            parsed = None
+
+                    if parsed:
+                        tool_calls = _convert_parsed_to_openai(parsed)
+                        prefix_content = get_content_before_tool_call(full_content, mode)
+                        tc_chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {
+                                    "content": prefix_content,
+                                    "tool_calls": tool_calls,
+                                },
+                                "finish_reason": "tool_calls",
+                            }],
+                        }
+                        yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
+                        yield "data: [DONE]\n\n"
+                        logger.info("Stream completed with tool calls: content_len=%d, tool_calls=%d",
+                                    len(full_content), len(tool_calls))
+                        return
+                    else:
+                        if detector.content_buffer:
+                            full_content += detector.content_buffer
+                            chunk_data = {
+                                "id": completion_id,
+                                "object": "chat.completion.chunk",
+                                "created": created,
+                                "model": model,
+                                "choices": [{"index": 0, "delta": {"content": detector.content_buffer}, "finish_reason": None}],
+                            }
+                            yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+
+                elif has_tools:
                     tool_calls = parse_tool_calls(full_content, mode)
                     if tool_calls:
                         prefix_content = get_content_before_tool_call(full_content, mode)
@@ -331,7 +488,8 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
 
 
 async def _non_stream_response(
-    query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str
+    query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str,
+    tools: Optional[list] = None, messages: Optional[list] = None,
 ):
     full_content = ""
     full_thinking = ""
@@ -355,15 +513,44 @@ async def _non_stream_response(
     finish_reason = "stop"
 
     if has_tools:
-        tool_calls = parse_tool_calls(full_content, mode)
-        if tool_calls:
-            prefix_content = get_content_before_tool_call(full_content, mode)
-            message = {
-                "role": "assistant",
-                "content": prefix_content,
-                "tool_calls": tool_calls,
-            }
-            finish_reason = "tool_calls"
+        trigger_signal = get_trigger_signal()
+        parsed = parse_function_calls_xml(full_content, trigger_signal)
+        if parsed:
+            validation_error = validate_parsed_tools(parsed, tools or [])
+            if validation_error:
+                logger.info(f"Tool call validation failed: {validation_error}")
+                retry_result = await _attempt_fc_retry(
+                    full_content, trigger_signal, messages or [], tools, model, mode
+                )
+                if retry_result:
+                    prefix_content = get_content_before_tool_call(full_content, mode)
+                    message = {
+                        "role": "assistant",
+                        "content": prefix_content,
+                        "tool_calls": retry_result,
+                    }
+                    finish_reason = "tool_calls"
+                else:
+                    parsed = None
+            else:
+                tool_calls = _convert_parsed_to_openai(parsed)
+                prefix_content = get_content_before_tool_call(full_content, mode)
+                message = {
+                    "role": "assistant",
+                    "content": prefix_content,
+                    "tool_calls": tool_calls,
+                }
+                finish_reason = "tool_calls"
+        else:
+            tool_calls = parse_tool_calls(full_content, mode)
+            if tool_calls:
+                prefix_content = get_content_before_tool_call(full_content, mode)
+                message = {
+                    "role": "assistant",
+                    "content": prefix_content,
+                    "tool_calls": tool_calls,
+                }
+                finish_reason = "tool_calls"
 
     if full_thinking:
         message["reasoning_content"] = full_thinking
