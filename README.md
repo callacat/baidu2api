@@ -63,6 +63,8 @@ docker-compose logs -f
 ```
 
 镜像地址：
+- **Docker Hub**：`dijiaozhibei/baidu2api:latest`
+- 🇨🇳 国内镜像加速：`docker.1ms.run/dijiaozhibei/baidu2api:latest`
 - **ghcr.io**：`ghcr.io/dijiaozhibei-top/baidu2api:latest`
 - 🇨🇳 国内镜像加速：`ghcr.nju.edu.cn/dijiaozhibei-top/baidu2api:latest`
 

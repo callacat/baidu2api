@@ -54,6 +54,8 @@ docker-compose logs -f
 ```
 
 Image URLs:
+- **Docker Hub**: `dijiaozhibei/baidu2api:latest`
+- 🇨🇳 China mirror: `docker.1ms.run/dijiaozhibei/baidu2api:latest`
 - **ghcr.io**: `ghcr.io/dijiaozhibei-top/baidu2api:latest`
 - 🇨🇳 China mirror: `ghcr.nju.edu.cn/dijiaozhibei-top/baidu2api:latest`
 
