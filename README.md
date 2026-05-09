@@ -274,6 +274,8 @@ baidu2api/
 - [ds2api](https://github.com/CJackHwang/ds2api) — 提供了将 Web 聊天封装为 OpenAI API 的架构参考及 JSON 工具调用机制
 - [toolify](https://github.com/funnycups/toolify) — 提供了 XML 工具调用机制的参考
 
-## License
+## 许可证
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
+
+本项目集成了 [toolify](https://github.com/funnycups/toolify) 和 [ds2api](https://github.com/CJackHwang/ds2api) 的代码，均采用 GPL-3.0 许可证。

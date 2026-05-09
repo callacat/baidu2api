@@ -246,4 +246,6 @@ Config file is `config.json`, supports `BAIDU2API_CONFIG_PATH` environment varia
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
+
+This project integrates code from [toolify](https://github.com/funnycups/toolify) and [ds2api](https://github.com/CJackHwang/ds2api), both licensed under GPL-3.0.
