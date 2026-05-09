@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import sys
@@ -340,151 +341,169 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
     full_thinking = ""
     trigger_signal = get_trigger_signal() if has_tools else None
     detector = StreamingFunctionCallDetector(trigger_signal) if has_tools else None
+    max_retries = 2
 
-    try:
-        async for event in client.chat_stream(query, model):
-            if event["type"] == "basedata":
-                continue
-            if event["type"] != "message":
-                continue
+    for attempt in range(max_retries + 1):
+        full_content = ""
+        full_thinking = ""
+        if detector:
+            detector.reset()
+        got_end = False
 
-            thinking = client.extract_thinking(event)
-            if thinking:
-                full_thinking += thinking
-                chunk_data = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model,
-                    "choices": [{"index": 0, "delta": {"reasoning_content": thinking}, "finish_reason": None}],
-                }
-                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
-                continue
+        try:
+            async for event in client.chat_stream(query, model):
+                if event["type"] == "basedata":
+                    continue
+                if event["type"] != "message":
+                    continue
 
-            content = client.extract_content(event)
-            if content:
-                if detector:
-                    is_detected, content_to_yield = detector.process_chunk(content)
-                    if content_to_yield:
-                        full_content += content_to_yield
-                        chunk_data = {
-                            "id": completion_id,
-                            "object": "chat.completion.chunk",
-                            "created": created,
-                            "model": model,
-                            "choices": [{"index": 0, "delta": {"content": content_to_yield}, "finish_reason": None}],
-                        }
-                        yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
-                    if is_detected:
-                        continue
-                else:
-                    full_content += content
+                thinking = client.extract_thinking(event)
+                if thinking:
+                    full_thinking += thinking
                     chunk_data = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
                         "created": created,
                         "model": model,
-                        "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
+                        "choices": [{"index": 0, "delta": {"reasoning_content": thinking}, "finish_reason": None}],
                     }
                     yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                    continue
 
-            if client.is_end_turn(event) or client.is_finished(event):
-                if detector and detector.state == "tool_parsing":
-                    parsed = detector.finalize()
-                    if parsed:
-                        validation_error = validate_parsed_tools(parsed, tools or [])
-                        if validation_error:
-                            logger.info(f"Tool/schema validation failed in stream finalize: {validation_error}")
-                            parsed = None
-
-                    if parsed:
-                        tool_calls = _convert_parsed_to_openai(parsed)
-                        prefix_content = get_content_before_tool_call(full_content, mode)
-                        tc_chunk = {
-                            "id": completion_id,
-                            "object": "chat.completion.chunk",
-                            "created": created,
-                            "model": model,
-                            "choices": [{
-                                "index": 0,
-                                "delta": {
-                                    "content": prefix_content,
-                                    "tool_calls": tool_calls,
-                                },
-                                "finish_reason": "tool_calls",
-                            }],
-                        }
-                        yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
-                        yield "data: [DONE]\n\n"
-                        logger.info("Stream completed with tool calls: content_len=%d, tool_calls=%d",
-                                    len(full_content), len(tool_calls))
-                        return
-                    else:
-                        if detector.content_buffer:
-                            full_content += detector.content_buffer
+                content = client.extract_content(event)
+                if content:
+                    if detector:
+                        is_detected, content_to_yield = detector.process_chunk(content)
+                        if content_to_yield:
+                            full_content += content_to_yield
                             chunk_data = {
                                 "id": completion_id,
                                 "object": "chat.completion.chunk",
                                 "created": created,
                                 "model": model,
-                                "choices": [{"index": 0, "delta": {"content": detector.content_buffer}, "finish_reason": None}],
+                                "choices": [{"index": 0, "delta": {"content": content_to_yield}, "finish_reason": None}],
                             }
                             yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
-
-                elif has_tools:
-                    tool_calls = parse_tool_calls(full_content, mode)
-                    if tool_calls:
-                        prefix_content = get_content_before_tool_call(full_content, mode)
-                        tc_chunk = {
+                        if is_detected:
+                            continue
+                    else:
+                        full_content += content
+                        chunk_data = {
                             "id": completion_id,
                             "object": "chat.completion.chunk",
                             "created": created,
                             "model": model,
-                            "choices": [{
-                                "index": 0,
-                                "delta": {
-                                    "content": prefix_content,
-                                    "tool_calls": tool_calls,
-                                },
-                                "finish_reason": "tool_calls",
-                            }],
+                            "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
                         }
-                        yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
-                        yield "data: [DONE]\n\n"
-                        logger.info("Stream completed with tool calls: content_len=%d, tool_calls=%d",
-                                    len(full_content), len(tool_calls))
-                        return
+                        yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
 
-                chunk_data = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model,
-                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                }
-                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
-                yield "data: [DONE]\n\n"
-                logger.info("Stream completed: content_len=%d, thinking_len=%d", len(full_content), len(full_thinking))
-                if DEBUG:
-                    logger.debug("Stream full content: %s", full_content[:500])
-                    if full_thinking:
-                        logger.debug("Stream full thinking: %s", full_thinking[:500])
-                return
+                if client.is_end_turn(event) or client.is_finished(event):
+                    got_end = True
 
-    except Exception as e:
-        logger.error("Stream error: %s", str(e))
-        error_data = {
-            "id": completion_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [{"index": 0, "delta": {"content": f"\n\n[Error: {str(e)}]"}, "finish_reason": "stop"}],
-        }
-        yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
-        return
+                    if detector and detector.state == "tool_parsing":
+                        parsed = detector.finalize()
+                        if parsed:
+                            validation_error = validate_parsed_tools(parsed, tools or [])
+                            if validation_error:
+                                logger.info(f"Tool/schema validation failed in stream finalize: {validation_error}")
+                                parsed = None
 
+                        if parsed:
+                            tool_calls = _convert_parsed_to_openai(parsed)
+                            prefix_content = get_content_before_tool_call(full_content, mode)
+                            tc_chunk = {
+                                "id": completion_id,
+                                "object": "chat.completion.chunk",
+                                "created": created,
+                                "model": model,
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {
+                                        "content": prefix_content,
+                                        "tool_calls": tool_calls,
+                                    },
+                                    "finish_reason": "tool_calls",
+                                }],
+                            }
+                            yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
+                            yield "data: [DONE]\n\n"
+                            logger.info("Stream completed with tool calls: content_len=%d, tool_calls=%d",
+                                        len(full_content), len(tool_calls))
+                            return
+                        else:
+                            if detector.content_buffer:
+                                full_content += detector.content_buffer
+                                chunk_data = {
+                                    "id": completion_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": created,
+                                    "model": model,
+                                    "choices": [{"index": 0, "delta": {"content": detector.content_buffer}, "finish_reason": None}],
+                                }
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+
+                    elif has_tools:
+                        tool_calls = parse_tool_calls(full_content, mode)
+                        if tool_calls:
+                            prefix_content = get_content_before_tool_call(full_content, mode)
+                            tc_chunk = {
+                                "id": completion_id,
+                                "object": "chat.completion.chunk",
+                                "created": created,
+                                "model": model,
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {
+                                        "content": prefix_content,
+                                        "tool_calls": tool_calls,
+                                    },
+                                    "finish_reason": "tool_calls",
+                                }],
+                            }
+                            yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
+                            yield "data: [DONE]\n\n"
+                            logger.info("Stream completed with tool calls: content_len=%d, tool_calls=%d",
+                                        len(full_content), len(tool_calls))
+                            return
+
+                    break
+
+        except Exception as e:
+            logger.error("Stream error: %s", str(e))
+            error_data = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": f"\n\n[Error: {str(e)}]"}, "finish_reason": "stop"}],
+            }
+            yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        if full_content or full_thinking or not got_end:
+            break
+
+        if attempt < max_retries:
+            logger.warning("Stream empty response (attempt %d/%d), waiting and retrying...", attempt + 1, max_retries)
+            await asyncio.sleep(2)
+        else:
+            logger.warning("Stream empty response after %d retries", max_retries)
+
+    chunk_data = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+    }
+    yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
     yield "data: [DONE]\n\n"
+    logger.info("Stream completed: content_len=%d, thinking_len=%d", len(full_content), len(full_thinking))
+    if DEBUG:
+        logger.debug("Stream full content: %s", full_content[:500])
+        if full_thinking:
+            logger.debug("Stream full thinking: %s", full_thinking[:500])
 
 
 async def _non_stream_response(
@@ -493,21 +512,35 @@ async def _non_stream_response(
 ):
     full_content = ""
     full_thinking = ""
+    max_retries = 2
 
-    async for event in client.chat_stream(query, model):
-        if event["type"] != "message":
-            continue
+    for attempt in range(max_retries + 1):
+        full_content = ""
+        full_thinking = ""
 
-        thinking = client.extract_thinking(event)
-        if thinking:
-            full_thinking += thinking
+        async for event in client.chat_stream(query, model):
+            if event["type"] != "message":
+                continue
 
-        content = client.extract_content(event)
-        if content:
-            full_content += content
+            thinking = client.extract_thinking(event)
+            if thinking:
+                full_thinking += thinking
 
-        if client.is_end_turn(event) or client.is_finished(event):
+            content = client.extract_content(event)
+            if content:
+                full_content += content
+
+            if client.is_end_turn(event) or client.is_finished(event):
+                break
+
+        if full_content or full_thinking:
             break
+
+        if attempt < max_retries:
+            logger.warning("Empty response (attempt %d/%d), waiting and retrying...", attempt + 1, max_retries)
+            await asyncio.sleep(2)
+        else:
+            logger.warning("Empty response after %d retries", max_retries)
 
     message = {"role": "assistant", "content": full_content}
     finish_reason = "stop"

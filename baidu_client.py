@@ -231,6 +231,7 @@ class BaiduChatClient:
 
                 buffer = ""
                 token_failed = False
+                has_content = False
                 async for chunk in resp.aiter_text():
                     buffer += chunk
                     while "\n\n" in buffer:
@@ -244,10 +245,19 @@ class BaiduChatClient:
                                 logger.warning("Token validation failed (status=1001)")
                                 token_failed = True
                             else:
+                                if parsed["type"] == "message":
+                                    has_content = True
                                 yield parsed
 
                 if token_failed and retry_on_token_fail:
                     logger.info("Retrying with fresh token...")
+                    await self._force_refresh()
+                    async for event in self._do_chat_stream(
+                        query, model, retry_on_token_fail=False
+                    ):
+                        yield event
+                elif not has_content and retry_on_token_fail:
+                    logger.warning("Empty response from Baidu API, refreshing token and retrying...")
                     await self._force_refresh()
                     async for event in self._do_chat_stream(
                         query, model, retry_on_token_fail=False
