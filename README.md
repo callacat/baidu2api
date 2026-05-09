@@ -21,7 +21,7 @@
 
 | 模型 ID | 百度模型 | 思维链 | 说明 |
 |---------|---------|--------|------|
-| `deepseek-v4-pro` | DeepSeek-V4 | ❌ | DeepSeek V4，1M 上下文 |
+| `deepseek-v4-pro` | DeepSeek-V4 | ✅ | DeepSeek V4，1M 上下文 |
 | `deepseek-r1` | DeepSeek-R1 | ✅ | DeepSeek R1 推理模型 |
 | `ernie-4.5-turbo` | ERNIE-4.5 | ❌ | 文心 4.5 |
 | `smartMode` | 智能模式 | ❌ | 百度智能路由 |
@@ -74,7 +74,7 @@ docker-compose logs -f
 docker run -d -p 8000:8000 \
   -e BAIDU2API_ADMIN_KEY=mysecret \
   -v ./config.json:/app/config.json \
-  ghcr.io/dijiaozhibei-top/baidu2api:latest
+  dijiaozhibei/baidu2api:latest
 ```
 
 ### 方式三：手动 Docker 构建

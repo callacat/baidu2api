@@ -21,7 +21,7 @@ Wrap [chat.baidu.com](https://chat.baidu.com) AI chat into an OpenAI-compatible 
 
 | Model ID | Baidu Model | Thinking | Description |
 |----------|-------------|----------|-------------|
-| `deepseek-v4-pro` | DeepSeek-V4 | ❌ | DeepSeek V4, 1M context |
+| `deepseek-v4-pro` | DeepSeek-V4 | ✅ | DeepSeek V4, 1M context |
 | `deepseek-r1` | DeepSeek-R1 | ✅ | DeepSeek R1 reasoning model |
 | `ernie-4.5-turbo` | ERNIE-4.5 | ❌ | ERNIE 4.5 |
 | `smartMode` | Smart Mode | ❌ | Baidu intelligent routing |
@@ -65,7 +65,7 @@ Or use `docker run` directly:
 docker run -d -p 8000:8000 \
   -e BAIDU2API_ADMIN_KEY=mysecret \
   -v ./config.json:/app/config.json \
-  ghcr.io/dijiaozhibei-top/baidu2api:latest
+  dijiaozhibei/baidu2api:latest
 ```
 
 ### Option 3: Manual Docker Build
