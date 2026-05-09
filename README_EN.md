@@ -40,14 +40,33 @@ python main.py debug    # Debug mode
 
 Server listens on `http://0.0.0.0:8000`
 
-### Option 2: Docker Compose
+### Option 2: Docker (Pre-built Image)
 
 ```bash
+# Copy environment config
+cp .env.example .env
+# Edit .env to set admin key
+# BAIDU2API_ADMIN_KEY=your-secret-key
+
+# Start with Docker Compose
 docker-compose up -d
 docker-compose logs -f
 ```
 
-### Option 3: Manual Docker
+Image URLs:
+- **ghcr.io**: `ghcr.io/dijiaozhibei-top/baidu2api:latest`
+- 🇨🇳 China mirror: `ghcr.nju.edu.cn/dijiaozhibei-top/baidu2api:latest`
+
+Or use `docker run` directly:
+
+```bash
+docker run -d -p 8000:8000 \
+  -e BAIDU2API_ADMIN_KEY=mysecret \
+  -v ./config.json:/app/config.json \
+  ghcr.io/dijiaozhibei-top/baidu2api:latest
+```
+
+### Option 3: Manual Docker Build
 
 ```bash
 docker build -t baidu2api .

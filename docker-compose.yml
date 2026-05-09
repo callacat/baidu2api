@@ -1,5 +1,6 @@
 services:
   baidu2api:
+    image: ghcr.io/dijiaozhibei-top/baidu2api:latest
     build: .
     container_name: baidu2api
     ports:

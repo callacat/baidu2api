@@ -47,14 +47,32 @@ python main.py debug
 
 服务默认监听 `http://0.0.0.0:8000`
 
-### 方式二：Docker 运行
+### 方式二：Docker 运行（预编译镜像）
 
 ```bash
-# 构建并启动
+# 复制环境变量配置文件
+cp .env.example .env
+# 编辑 .env 设置管理员密钥
+# BAIDU2API_ADMIN_KEY=your-secret-key
+
+# 使用 Docker Compose 启动
 docker-compose up -d
 
 # 查看日志
 docker-compose logs -f
+```
+
+镜像地址：
+- **ghcr.io**：`ghcr.io/dijiaozhibei-top/baidu2api:latest`
+- 🇨🇳 国内镜像加速：`ghcr.nju.edu.cn/dijiaozhibei-top/baidu2api:latest`
+
+也可以直接使用 `docker run`：
+
+```bash
+docker run -d -p 8000:8000 \
+  -e BAIDU2API_ADMIN_KEY=mysecret \
+  -v ./config.json:/app/config.json \
+  ghcr.io/dijiaozhibei-top/baidu2api:latest
 ```
 
 ### 方式三：手动 Docker 构建
