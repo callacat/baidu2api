@@ -269,6 +269,14 @@ baidu2api/
 - 请合理使用，避免高频请求给百度服务器带来压力
 - 本项目不收集、不存储任何用户数据
 
+## QQ 交流群
+
+点击链接加入群聊【baidu2api项目交流群】：https://qm.qq.com/q/Rrv76AeZmG
+
+群号：511510364
+
+<img src="assets/qq-group.jpg" width="200" alt="QQ群二维码" />
+
 ## 致谢
 
 - [ds2api](https://github.com/CJackHwang/ds2api) — 提供了将 Web 聊天封装为 OpenAI API 的架构参考及 JSON 工具调用机制
