@@ -18,3 +18,4 @@ env/
 *~
 config.json
 *.spec
+.trae/
