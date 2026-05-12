@@ -224,7 +224,7 @@ class BaiduChatClient:
             ) as resp:
                 if resp.status_code != 200:
                     error_text = await resp.aread()
-                    logger.error("Baidu API error: status=%d", resp.status_code)
+                    logger.error("Baidu API error: status=%d, body=%s", resp.status_code, error_text.decode()[:500])
                     raise RuntimeError(
                         f"Baidu API error: status={resp.status_code}, body={error_text.decode()}"
                     )
@@ -232,12 +232,16 @@ class BaiduChatClient:
                 buffer = ""
                 token_failed = False
                 has_content = False
+                event_count = 0
+                raw_chunks = []
                 async for chunk in resp.aiter_text():
+                    raw_chunks.append(chunk)
                     buffer += chunk
                     while "\n\n" in buffer:
                         event_str, buffer = buffer.split("\n\n", 1)
                         parsed = self._parse_sse_event(event_str)
                         if parsed:
+                            event_count += 1
                             if (
                                 parsed["type"] == "message"
                                 and parsed["data"].get("status") == 1001
@@ -247,7 +251,18 @@ class BaiduChatClient:
                             else:
                                 if parsed["type"] == "message":
                                     has_content = True
+                                    logger.debug("SSE message event #%d: keys=%s, component=%s",
+                                                 event_count,
+                                                 list(parsed["data"].keys()),
+                                                 self._get_component_name(parsed["data"]))
                                 yield parsed
+
+                raw_total = "".join(raw_chunks)
+                logger.info("SSE stream ended: events=%d, has_content=%s, token_failed=%s, raw_len=%d",
+                            event_count, has_content, token_failed, len(raw_total))
+                if not has_content and event_count > 0:
+                    logger.warning("Got %d SSE events but no message events! Raw tail: %s",
+                                   event_count, raw_total[-500:] if len(raw_total) > 500 else raw_total)
 
                 if token_failed and retry_on_token_fail:
                     logger.info("Retrying with fresh token...")
@@ -268,6 +283,13 @@ class BaiduChatClient:
             await self._force_refresh()
             raise
 
+    @staticmethod
+    def _get_component_name(data: dict) -> str:
+        try:
+            return data["data"]["message"]["content"]["generator"].get("component", "N/A")
+        except (KeyError, TypeError):
+            return "N/A"
+
     def _parse_sse_event(self, event_str: str) -> Optional[dict]:
         event_type = None
         data_str = None
@@ -284,6 +306,7 @@ class BaiduChatClient:
         try:
             data = json.loads(data_str)
         except json.JSONDecodeError:
+            logger.debug("Failed to parse SSE data: %s", data_str[:200])
             return None
 
         if event_type == "basedata":
@@ -300,15 +323,19 @@ class BaiduChatClient:
             return None
 
         data = event["data"]
+
         try:
             generator = data["data"]["message"]["content"]["generator"]
             component = generator.get("component", "")
             if component == "markdown-yiyan":
                 return generator.get("data", {}).get("value", "")
-            if component and component not in ("thinkingSteps", "searchResult", "questionClosely"):
-                value = generator.get("data", {}).get("value", "")
-                if value:
-                    return value
+            if component == "thinkingSteps":
+                return None
+            if component in ("searchResult", "questionClosely"):
+                return None
+            value = generator.get("data", {}).get("value", "")
+            if value:
+                return value
         except (KeyError, TypeError):
             pass
 
@@ -317,6 +344,15 @@ class BaiduChatClient:
             for item in items:
                 if item.get("type") == "text":
                     return item.get("data", {}).get("text", "")
+        except (KeyError, TypeError):
+            pass
+
+        try:
+            msg_data = data.get("data", {})
+            msg = msg_data.get("message", {})
+            content = msg.get("content", {})
+            if isinstance(content, str) and content:
+                return content
         except (KeyError, TypeError):
             pass
 
