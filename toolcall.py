@@ -355,12 +355,24 @@ def format_assistant_tool_calls_for_ai(tool_calls: List[Dict[str, Any]], trigger
             if isinstance(arguments_val, dict):
                 args_dict = arguments_val
             elif isinstance(arguments_val, str):
-                parsed = json.loads(arguments_val or "{}")
-                if not isinstance(parsed, dict):
-                    raise ValueError(f"arguments must be a JSON object, got {type(parsed).__name__}")
-                args_dict = parsed
+                s = arguments_val or "{}"
+                decoder = json.JSONDecoder()
+                try:
+                    args_dict, end_idx = decoder.raw_decode(s)
+                except json.JSONDecodeError as je:
+                    raise ValueError(f"arguments is not valid JSON: {je}")
+                rest = s[end_idx:].strip()
+                if rest:
+                    logger.warning(
+                        "Extra content after JSON in tool '%s' arguments (ignored, %d extra chars): %s",
+                        name, len(rest), rest[:100]
+                    )
+                if not isinstance(args_dict, dict):
+                    raise ValueError(f"arguments must be a JSON object, got {type(args_dict).__name__}")
             else:
                 raise ValueError(f"arguments must be a JSON object or JSON string, got {type(arguments_val).__name__}")
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid assistant.tool_calls arguments for tool '{name}': {e}")
         args_payload = json.dumps(args_dict, ensure_ascii=False)
@@ -664,10 +676,14 @@ def parse_function_calls_xml(xml_string: str, trigger_signal: str) -> Optional[L
             s = re.sub(r"^```(?:json)?\s*", "", s)
             s = re.sub(r"\s*```$", "", s)
         try:
-            parsed = json.loads(s)
-        except Exception as e:
+            decoder = json.JSONDecoder()
+            parsed, end_idx = decoder.raw_decode(s)
+        except json.JSONDecodeError as e:
             logger.debug(f"Invalid JSON in args_json: {type(e).__name__}: {e}")
             return None
+        rest = s[end_idx:].strip()
+        if rest:
+            logger.debug(f"Extra content after JSON in args_json (ignored, {len(rest)} extra chars): {rest[:80]}")
         if not isinstance(parsed, dict):
             logger.debug(f"args_json must decode to an object, got {type(parsed).__name__}")
             return None
@@ -1045,7 +1061,8 @@ def _parse_json_tool_calls(content: str) -> Optional[List[Dict[str, Any]]]:
         if match:
             try:
                 json_str = match.group(0)
-                parsed = json.loads(json_str)
+                decoder = json.JSONDecoder()
+                parsed, _ = decoder.raw_decode(json_str)
                 if "tool_calls" in parsed and isinstance(parsed["tool_calls"], list):
                     tool_calls = []
                     for call in parsed["tool_calls"]:

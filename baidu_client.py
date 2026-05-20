@@ -108,7 +108,31 @@ class BaiduChatClient:
     def _is_deepseek_model(self, model_name: str) -> bool:
         return model_name.startswith("DeepSeek")
 
-    def _build_request_body(self, query: str, model_name: str, chat_token: str) -> dict:
+    def _build_request_body(self, query: str, model_name: str, chat_token: str, images: Optional[list] = None) -> dict:
+        query_entries = [
+            {
+                "type": "TEXT",
+                "data": {
+                    "text": {
+                        "query": query,
+                        "extData": "{}",
+                        "text_type": "",
+                    }
+                },
+            }
+        ]
+        if images:
+            for img in images:
+                url = img.get("url", "") if isinstance(img, dict) else str(img)
+                if url:
+                    query_entries.append({
+                        "type": "IMAGE",
+                        "data": {
+                            "image": {
+                                "url": url,
+                            }
+                        },
+                    })
         return {
             "message": {
                 "inputMethod": "chat_search",
@@ -155,18 +179,7 @@ class BaiduChatClient:
                 },
                 "from": "",
                 "source": "pc_csaitab",
-                "query": [
-                    {
-                        "type": "TEXT",
-                        "data": {
-                            "text": {
-                                "query": query,
-                                "extData": "{}",
-                                "text_type": "",
-                            }
-                        },
-                    }
-                ],
+                "query": query_entries,
                 "anti_ext": {"inputT": None, "ck1": 162, "ck9": 496, "ck10": 350},
             },
             "sa": "bkb",
@@ -195,8 +208,9 @@ class BaiduChatClient:
         self,
         query: str,
         model: str = "smartMode",
+        images: Optional[list] = None,
     ) -> AsyncIterator[dict]:
-        async for event in self._do_chat_stream(query, model, retry_on_token_fail=True):
+        async for event in self._do_chat_stream(query, model, retry_on_token_fail=True, images=images):
             yield event
 
     async def _do_chat_stream(
@@ -204,12 +218,13 @@ class BaiduChatClient:
         query: str,
         model: str,
         retry_on_token_fail: bool = True,
+        images: Optional[list] = None,
     ) -> AsyncIterator[dict]:
         model_name = self._resolve_model(model)
 
         client = await self._ensure_client()
         chat_token = self._generate_chat_token(query)
-        body = self._build_request_body(query, model_name, chat_token)
+        body = self._build_request_body(query, model_name, chat_token, images)
         headers = self._build_headers(query, model_name)
 
         logger.info("Request: model=%s -> %s, query_len=%d", model, model_name, len(query))
@@ -268,14 +283,14 @@ class BaiduChatClient:
                     logger.info("Retrying with fresh token...")
                     await self._force_refresh()
                     async for event in self._do_chat_stream(
-                        query, model, retry_on_token_fail=False
+                        query, model, retry_on_token_fail=False, images=images
                     ):
                         yield event
                 elif not has_content and retry_on_token_fail:
                     logger.warning("Empty response from Baidu API, refreshing token and retrying...")
                     await self._force_refresh()
                     async for event in self._do_chat_stream(
-                        query, model, retry_on_token_fail=False
+                        query, model, retry_on_token_fail=False, images=images
                     ):
                         yield event
         except httpx.ConnectError as e:

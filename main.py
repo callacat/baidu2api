@@ -141,8 +141,42 @@ def _check_api_key(request: Request):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
-def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=None, mode: str = "xml") -> str:
-    processed = preprocess_messages(messages, tools, mode)
+def _extract_multimodal_content(content: any) -> tuple[str, list[dict]]:
+    if isinstance(content, str):
+        return content, []
+    if not isinstance(content, list):
+        return str(content), []
+    text_parts = []
+    images = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            text_parts.append(item.get("text", ""))
+        elif item.get("type") == "image_url":
+            image_url = item.get("image_url", {})
+            url = image_url.get("url", "") if isinstance(image_url, dict) else str(image_url)
+            detail = image_url.get("detail", "auto") if isinstance(image_url, dict) else "auto"
+            if url:
+                images.append({"url": url, "detail": detail})
+    return "\n".join(text_parts), images
+
+
+def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=None, mode: str = "xml"):
+    all_images = []
+    normalized_messages = []
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "user":
+            text, images = _extract_multimodal_content(content)
+            if images:
+                all_images.extend(images)
+            normalized_messages.append({**msg, "content": text})
+        else:
+            normalized_messages.append(msg)
+
+    processed = preprocess_messages(normalized_messages, tools, mode)
 
     parts = []
     if tools and mode != "none":
@@ -172,13 +206,21 @@ def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=
         logger.warning("Query too long (%d chars), truncating to %d", len(full), max_len)
         user_msg = ""
         for msg in reversed(messages):
-            if msg.get("content") and msg.get("role") == "user":
-                user_msg = msg["content"]
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                text, _ = _extract_multimodal_content(content)
+                content = text
+            if content and msg.get("role") == "user":
+                user_msg = content
                 break
         if not user_msg:
             for msg in reversed(messages):
-                if msg.get("content"):
-                    user_msg = msg["content"]
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    text, _ = _extract_multimodal_content(content)
+                    content = text
+                if content:
+                    user_msg = content
                     break
 
         system_parts = [msg["content"] for msg in messages if msg.get("role") == "system" and msg.get("content")]
@@ -199,7 +241,8 @@ def build_query(messages: list[dict], tools: Optional[list] = None, tool_choice=
         else:
             full = truncated
 
-    return full
+    images = all_images if all_images else None
+    return full, images
 
 
 @app.get("/v1/models")
@@ -226,7 +269,7 @@ async def chat_completions(request: Request):
 
     set_current_tools(tools)
 
-    query = build_query(messages, tools, tool_choice, mode)
+    query, images = build_query(messages, tools, tool_choice, mode)
     if not query:
         raise HTTPException(status_code=400, detail="No message content provided")
 
@@ -234,15 +277,15 @@ async def chat_completions(request: Request):
     created = int(time.time())
     has_tools = tools is not None and mode != "none"
 
-    logger.info("Chat request: model=%s, stream=%s, query_len=%d, has_tools=%s, mode=%s",
-                model, stream, len(query), has_tools, mode)
+    logger.info("Chat request: model=%s, stream=%s, query_len=%d, has_tools=%s, mode=%s, images=%d",
+                model, stream, len(query), has_tools, mode, len(images) if images else 0)
     if DEBUG:
         logger.debug("Full query: %s", query[:500])
         logger.debug("Full messages: %s", json.dumps(messages, ensure_ascii=False)[:500])
 
     if stream:
         return StreamingResponse(
-            _stream_response(query, model, completion_id, created, has_tools, mode, tools),
+            _stream_response(query, model, completion_id, created, has_tools, mode, tools, images),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -252,7 +295,7 @@ async def chat_completions(request: Request):
         )
     else:
         return await _non_stream_response(
-            query, model, completion_id, created, has_tools, mode, tools, messages
+            query, model, completion_id, created, has_tools, mode, tools, messages, images
         )
 
 
@@ -307,7 +350,7 @@ async def _attempt_fc_retry(
         ]
 
         try:
-            retry_query = build_query(retry_messages, tools, mode=mode)
+            retry_query, _ = build_query(retry_messages, tools, mode=mode)
             retry_content = ""
             async for event in client.chat_stream(retry_query, model):
                 if event["type"] != "message":
@@ -336,7 +379,7 @@ async def _attempt_fc_retry(
     return None
 
 
-async def _stream_response(query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str, tools: Optional[list] = None):
+async def _stream_response(query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str, tools: Optional[list] = None, images: Optional[list] = None):
     full_content = ""
     full_thinking = ""
     trigger_signal = get_trigger_signal() if has_tools else None
@@ -351,7 +394,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
         got_end = False
 
         try:
-            async for event in client.chat_stream(query, model):
+            async for event in client.chat_stream(query, model, images=images):
                 if event["type"] == "basedata":
                     continue
                 if event["type"] != "message":
@@ -509,6 +552,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
 async def _non_stream_response(
     query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str,
     tools: Optional[list] = None, messages: Optional[list] = None,
+    images: Optional[list] = None,
 ):
     full_content = ""
     full_thinking = ""
@@ -518,7 +562,7 @@ async def _non_stream_response(
         full_content = ""
         full_thinking = ""
 
-        async for event in client.chat_stream(query, model):
+        async for event in client.chat_stream(query, model, images=images):
             if event["type"] != "message":
                 continue
 
