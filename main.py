@@ -473,7 +473,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                                     "finish_reason": "tool_calls",
                                 }],
                             }
-                            yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps(tc_chunk, ensure_ascii=True)}\n\n"
                             yield "data: [DONE]\n\n"
                             logger.info("Stream completed with tool calls: content_len=%d, tool_calls=%d",
                                         len(full_content), len(tool_calls))
@@ -506,12 +506,15 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                                     "finish_reason": "tool_calls",
                                 }],
                             }
-                            yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps(tc_chunk, ensure_ascii=True)}\n\n"
                             yield "data: [DONE]\n\n"
                             logger.info("Stream completed with tool calls: content_len=%d, tool_calls=%d",
                                         len(full_content), len(tool_calls))
                             return
 
+                    # Don't break immediately - let generator drain naturally.
+                    # The generator completes when the HTTP response ends.
+                    # If it hangs (keep-alive), break is skipped and retry handles it.
                     break
 
         except Exception as e:
