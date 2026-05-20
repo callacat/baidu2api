@@ -1053,8 +1053,11 @@ def _convert_parsed_to_openai(parsed: List[Dict[str, Any]]) -> List[Dict[str, An
 
 def _parse_json_tool_calls(content: str) -> Optional[List[Dict[str, Any]]]:
     clean = remove_think_blocks(content)
+    # Strip markdown code blocks that models frequently wrap JSON in
+    clean = re.sub(r'```(?:json)?\s*', '', clean)
+    clean = re.sub(r'\s*```', '', clean)
     patterns = [
-        r'\{[\s\n]*"tool_calls"[\s\n]*:[\s\n]*\[(.*?)\][\s\n]*\}',
+        r'\{[\s\n]*"tool_calls"[\s\n]*:[\s\n]*\[[\s\S]*?\][\s\n]*\}',
     ]
     for pattern in patterns:
         match = re.search(pattern, clean, re.DOTALL)
