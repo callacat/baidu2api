@@ -1067,10 +1067,11 @@ def set_current_tools(tools: Optional[List[Dict[str, Any]]]):
 
 def _convert_parsed_to_openai(parsed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     tool_calls = []
-    for p in parsed:
+    for i, p in enumerate(parsed):
         name = p.get("name", "")
         args = p.get("args", {})
         tool_calls.append({
+            "index": i,
             "id": f"call_{uuid.uuid4().hex[:24]}",
             "type": "function",
             "function": {

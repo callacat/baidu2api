@@ -453,7 +453,6 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
 
                         if parsed:
                             tool_calls = _convert_parsed_to_openai(parsed)
-                            prefix_content = get_content_before_tool_call(full_content, mode)
                             tc_chunk = {
                                 "id": completion_id,
                                 "object": "chat.completion.chunk",
@@ -462,7 +461,6 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                                 "choices": [{
                                     "index": 0,
                                     "delta": {
-                                        "content": prefix_content,
                                         "tool_calls": tool_calls,
                                     },
                                     "finish_reason": "tool_calls",
@@ -488,7 +486,6 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                     elif has_tools:
                         tool_calls = parse_tool_calls(full_content, mode)
                         if tool_calls:
-                            prefix_content = get_content_before_tool_call(full_content, mode)
                             tc_chunk = {
                                 "id": completion_id,
                                 "object": "chat.completion.chunk",
@@ -497,7 +494,6 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                                 "choices": [{
                                     "index": 0,
                                     "delta": {
-                                        "content": prefix_content,
                                         "tool_calls": tool_calls,
                                     },
                                     "finish_reason": "tool_calls",
