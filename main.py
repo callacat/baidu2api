@@ -514,10 +514,8 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                                         len(full_content), len(tool_calls))
                             return
 
-                    # Don't break immediately - let generator drain naturally.
-                    # The generator completes when the HTTP response ends.
-                    # If it hangs (keep-alive), break is skipped and retry handles it.
-                    break
+                    # Don't break - let the generator end naturally.
+                    # The SSE HTTP response completes after all events are sent.
 
         except Exception as e:
             logger.error("Stream error: %s", str(e))
