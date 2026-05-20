@@ -275,6 +275,18 @@ class BaiduChatClient:
                 raw_total = "".join(raw_chunks)
                 logger.info("SSE stream ended: events=%d, has_content=%s, token_failed=%s, raw_len=%d",
                             event_count, has_content, token_failed, len(raw_total))
+
+                # Flush remaining buffer - last event may not have trailing \n\n
+                if buffer.strip():
+                    parsed = self._parse_sse_event(buffer.strip())
+                    if parsed:
+                        event_count += 1
+                        if parsed["type"] == "message":
+                            has_content = True
+                            logger.debug("Flushed SSE event: keys=%s, component=%s",
+                                         list(parsed["data"].keys()),
+                                         self._get_component_name(parsed["data"]))
+                            yield parsed
                 if not has_content and event_count > 0:
                     logger.warning("Got %d SSE events but no message events! Raw tail: %s",
                                    event_count, raw_total[-500:] if len(raw_total) > 500 else raw_total)
