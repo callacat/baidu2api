@@ -286,7 +286,7 @@ async def chat_completions(request: Request):
     if stream:
         return StreamingResponse(
             _stream_response(query, model, completion_id, created, has_tools, mode, tools, images),
-            media_type="text/event-stream",
+            media_type="text/event-stream; charset=utf-8",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
@@ -410,7 +410,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                         "model": model,
                         "choices": [{"index": 0, "delta": {"reasoning_content": thinking}, "finish_reason": None}],
                     }
-                    yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps(chunk_data, ensure_ascii=True)}\n\n"
 
                 content = client.extract_content(event)
                 if content:
@@ -425,7 +425,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                                 "model": model,
                                 "choices": [{"index": 0, "delta": {"content": content_to_yield}, "finish_reason": None}],
                             }
-                            yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps(chunk_data, ensure_ascii=True)}\n\n"
                         if is_detected:
                             continue
                     else:
@@ -437,7 +437,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                             "model": model,
                             "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
                         }
-                        yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps(chunk_data, ensure_ascii=True)}\n\n"
 
                 if client.is_end_turn(event) or client.is_finished(event):
                     got_end = True
@@ -480,7 +480,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                                     "model": model,
                                     "choices": [{"index": 0, "delta": {"content": detector.content_buffer}, "finish_reason": None}],
                                 }
-                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=True)}\n\n"
 
                     elif has_tools:
                         tool_calls = parse_tool_calls(full_content, mode)
@@ -535,7 +535,7 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
         "model": model,
         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
     }
-    yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+    yield f"data: {json.dumps(chunk_data, ensure_ascii=True)}\n\n"
     yield "data: [DONE]\n\n"
     logger.info("Stream completed: content_len=%d, thinking_len=%d", len(full_content), len(full_thinking))
     if DEBUG:
