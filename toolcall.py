@@ -327,8 +327,16 @@ def _append_prompt_schema_body(
                 _append_prompt_schema_body(lines, option_schema, None, indent_level + 2, depth + 1)
 
 
-def format_tool_result_for_ai(tool_name: str, tool_arguments: str, result_content: str) -> str:
-    formatted_text = f"""Tool execution result:
+def format_tool_result_for_ai(tool_name: str, tool_arguments: str, result_content: str, mode: str = "xml") -> str:
+    if mode == "json":
+        formatted_text = f"""[Tool Result]
+Tool: {tool_name}
+Arguments: {tool_arguments}
+Result:
+{result_content}
+[End Tool Result]"""
+    else:
+        formatted_text = f"""Tool execution result:
 - Tool name: {tool_name}
 - Tool arguments: {tool_arguments}
 - Execution result:
@@ -337,6 +345,24 @@ def format_tool_result_for_ai(tool_name: str, tool_arguments: str, result_conten
 </tool_result>"""
     logger.debug(f"Formatted tool result for {tool_name}")
     return formatted_text
+
+
+def format_assistant_tool_calls_for_ai_json(tool_calls: List[Dict[str, Any]]) -> str:
+    calls = []
+    for tc in tool_calls:
+        func = tc.get("function", {})
+        args = func.get("arguments", "{}")
+        if isinstance(args, dict):
+            args = json.dumps(args, ensure_ascii=False)
+        calls.append({
+            "id": tc.get("id", f"call_{uuid.uuid4().hex[:24]}"),
+            "type": tc.get("type", "function"),
+            "function": {
+                "name": func.get("name", ""),
+                "arguments": args,
+            },
+        })
+    return json.dumps({"tool_calls": calls}, ensure_ascii=False)
 
 
 def format_assistant_tool_calls_for_ai(tool_calls: List[Dict[str, Any]], trigger_signal: str) -> str:
@@ -936,13 +962,17 @@ def preprocess_messages(messages: List[Dict[str, Any]], tools=None, mode: str = 
                     tool_name=tool_info["name"],
                     tool_arguments=tool_info["arguments"],
                     result_content=msg.get("content") or "",
+                    mode=mode,
                 )
             else:
                 formatted = msg.get("content") or ""
             processed.append({"role": "user", "content": formatted})
         elif msg.get("role") == "assistant" and msg.get("tool_calls"):
-            signal = get_trigger_signal()
-            formatted_tc = format_assistant_tool_calls_for_ai(msg["tool_calls"], signal)
+            if mode == "json":
+                formatted_tc = format_assistant_tool_calls_for_ai_json(msg["tool_calls"])
+            else:
+                signal = get_trigger_signal()
+                formatted_tc = format_assistant_tool_calls_for_ai(msg["tool_calls"], signal)
             original = msg.get("content") or ""
             final = f"{original}\n{formatted_tc}".strip()
             processed.append({"role": "assistant", "content": final})
