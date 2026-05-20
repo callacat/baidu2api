@@ -19,3 +19,5 @@ env/
 config.json
 *.spec
 .trae/
+server.out
+server.err
