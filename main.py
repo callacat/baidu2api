@@ -429,15 +429,18 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                         if is_detected:
                             continue
                     else:
-                        full_content += content
-                        chunk_data = {
-                            "id": completion_id,
-                            "object": "chat.completion.chunk",
-                            "created": created,
-                            "model": model,
-                            "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
-                        }
-                        yield f"data: {json.dumps(chunk_data, ensure_ascii=True)}\n\n"
+                        if isinstance(content, str):
+                            full_content += content
+                            chunk_data = {
+                                "id": completion_id,
+                                "object": "chat.completion.chunk",
+                                "created": created,
+                                "model": model,
+                                "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
+                            }
+                            yield f"data: {json.dumps(chunk_data, ensure_ascii=True)}\n\n"
+                        elif content:
+                            logger.warning("extract_content returned non-str type: %s", type(content).__name__)
 
                 if client.is_end_turn(event) or client.is_finished(event):
                     got_end = True
@@ -566,8 +569,10 @@ async def _non_stream_response(
                 full_thinking += thinking
 
             content = client.extract_content(event)
-            if content:
+            if isinstance(content, str):
                 full_content += content
+            elif content:
+                logger.warning("extract_content returned non-str type: %s", type(content).__name__)
 
             if client.is_end_turn(event) or client.is_finished(event):
                 break
