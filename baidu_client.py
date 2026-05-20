@@ -263,6 +263,12 @@ class BaiduChatClient:
                             ):
                                 logger.warning("Token validation failed (status=1001)")
                                 token_failed = True
+                            elif (
+                                parsed["type"] == "message"
+                                and parsed["data"].get("status", 0) >= 1000
+                            ):
+                                logger.warning("Baidu API error (status=%d)", parsed["data"].get("status"))
+                                token_failed = True
                             else:
                                 if parsed["type"] == "message":
                                     has_content = True
@@ -354,6 +360,13 @@ class BaiduChatClient:
         try:
             generator = data["data"]["message"]["content"]["generator"]
             component = generator.get("component", "")
+
+            # New format: text in generator.text (type="txt")
+            gen_text = generator.get("text", "")
+            if isinstance(gen_text, str) and gen_text:
+                return gen_text
+
+            # Old format: text in generator.data.value (component="markdown-yiyan")
             if component == "markdown-yiyan":
                 return generator.get("data", {}).get("value", "")
             if component == "thinkingSteps":
@@ -361,7 +374,7 @@ class BaiduChatClient:
             if component in ("searchResult", "questionClosely"):
                 return None
             value = generator.get("data", {}).get("value", "")
-            if value:
+            if isinstance(value, str) and value:
                 return value
         except (KeyError, TypeError):
             pass
