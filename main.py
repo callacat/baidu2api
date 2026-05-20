@@ -384,6 +384,31 @@ async def _attempt_fc_retry(
     return None
 
 
+async def _stream_from_result(result, completion_id: str, created: int, model: str):
+    """Convert a non-stream ChatCompletionResponse to SSE stream chunks."""
+    yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]}, ensure_ascii=True)}\n\n"
+
+    message = result.choices[0].message
+    content = message.get("content") or ""
+    tool_calls = message.get("tool_calls")
+    thinking = message.get("reasoning_content") or ""
+    finish = result.choices[0].finish_reason
+
+    if thinking:
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'reasoning_content': thinking}, 'finish_reason': None}]}, ensure_ascii=True)}\n\n"
+
+    if content:
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]}, ensure_ascii=True)}\n\n"
+
+    if tool_calls:
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'tool_calls': tool_calls}, 'finish_reason': tool_calls and 'tool_calls' or 'stop'}]}, ensure_ascii=True)}\n\n"
+
+    yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': finish}]}, ensure_ascii=True)}\n\n"
+    yield "data: [DONE]\n\n"
+    logger.info("Stream reconstructed from result: content_len=%d, thinking_len=%d, finish=%s",
+                len(content), len(thinking), finish)
+
+
 async def _stream_response(query: str, model: str, completion_id: str, created: int, has_tools: bool, mode: str, tools: Optional[list] = None, images: Optional[list] = None):
     full_content = ""
     full_thinking = ""
@@ -399,7 +424,14 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
         got_end = False
 
         try:
-            async for event in client.chat_stream(query, model, images=images):
+            stream = client.chat_stream(query, model, images=images).__aiter__()
+            while True:
+                try:
+                    timeout = 0.5 if got_end else 120.0
+                    event = await asyncio.wait_for(stream.__anext__(), timeout=timeout)
+                except (asyncio.TimeoutError, StopAsyncIteration):
+                    break
+
                 if event["type"] == "basedata":
                     continue
                 if event["type"] != "message":
@@ -514,8 +546,8 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                                         len(full_content), len(tool_calls))
                             return
 
-                    # Don't break - let the generator end naturally.
-                    # The SSE HTTP response completes after all events are sent.
+                    # got_end=True: timeout switches to 0.5s for drain
+                    # No explicit break needed - the while True loop handles it
 
         except Exception as e:
             logger.error("Stream error: %s", str(e))

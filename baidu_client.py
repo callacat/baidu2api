@@ -292,6 +292,7 @@ class BaiduChatClient:
                             logger.debug("Flushed SSE event: keys=%s, component=%s",
                                          list(parsed["data"].keys()),
                                          self._get_component_name(parsed["data"]))
+                            yield parsed
                 if not has_content and event_count > 0:
                     logger.warning("Got %d SSE events but no message events! Raw tail: %s",
                                    event_count, raw_total[-500:] if len(raw_total) > 500 else raw_total)
