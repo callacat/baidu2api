@@ -263,6 +263,11 @@ async def chat_completions(request: Request):
     model = body.get("model", "smartMode")
     messages = body.get("messages", [])
     stream = body.get("stream", False)
+    force = config.force_stream
+    if force == "stream":
+        stream = True
+    elif force == "non-stream":
+        stream = False
     tools = body.get("tools")
     tool_choice = body.get("tool_choice")
     mode = config.toolcall_mode

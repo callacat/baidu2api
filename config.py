@@ -9,6 +9,7 @@ DEFAULT_CONFIG = {
     "admin_key": "",
     "toolcall_mode": "xml",
     "max_query_length": 0,
+    "force_stream": "",
 }
 
 CONFIG_PATH = os.environ.get("BAIDU2API_CONFIG_PATH", "config.json")
@@ -74,6 +75,14 @@ class Config:
     @max_query_length.setter
     def max_query_length(self, value: int):
         self._data["max_query_length"] = value
+
+    @property
+    def force_stream(self) -> str:
+        return self._data.get("force_stream", "")
+
+    @force_stream.setter
+    def force_stream(self, value: str):
+        self._data["force_stream"] = value
 
     def to_dict(self) -> dict:
         d = dict(self._data)

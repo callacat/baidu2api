@@ -86,6 +86,7 @@ async def get_status(request: Request):
         "toolcall_mode": config.toolcall_mode,
         "api_keys_count": len(config.api_keys),
         "max_query_length": config.max_query_length,
+        "force_stream": config.force_stream,
         "request_count": _request_count,
     }
 
@@ -149,6 +150,10 @@ I18N = {
         "noneMode": "无（禁用工具调用）",
         "xmlMode": "XML 模式（Toolify 风格）",
         "jsonMode": "JSON 模式（DS2API 风格）",
+        "forceStreamLabel": "强制传输模式",
+        "forceStreamAuto": "自动（跟随客户端）",
+        "forceStreamOn": "强制流式",
+        "forceStreamOff": "强制非流式",
         "maxQueryLengthLabel": "最大查询长度（0=不限制）",
         "apiKeysTitle": "API 密钥管理",
         "newKeyPlaceholder": "输入新的 API 密钥",
@@ -191,6 +196,10 @@ I18N = {
         "noneMode": "None (disabled)",
         "xmlMode": "XML Mode (Toolify-style)",
         "jsonMode": "JSON Mode (DS2API-style)",
+        "forceStreamLabel": "Stream Mode",
+        "forceStreamAuto": "Auto (follow client)",
+        "forceStreamOn": "Force Stream",
+        "forceStreamOff": "Force Non-Stream",
         "maxQueryLengthLabel": "Max query length (0=unlimited)",
         "apiKeysTitle": "API Keys",
         "newKeyPlaceholder": "Enter new API key",
@@ -295,6 +304,7 @@ button.success:hover{background:#15803d}
       <div class="status-item"><div class="value" id="statusUptime">-</div><div class="label" id="statusUptimeLabel"></div></div>
       <div class="status-item"><div class="value" id="statusRequests">-</div><div class="label" id="statusRequestsLabel"></div></div>
       <div class="status-item"><div class="value" id="statusMaxLen">-</div><div class="label" id="statusMaxLenLabel"></div></div>
+      <div class="status-item"><div class="value" id="statusForceStream">-</div><div class="label" id="statusForceStreamLabel"></div></div>
     </div>
   </div>
   <div class="card">
@@ -305,6 +315,14 @@ button.success:hover{background:#15803d}
         <option value="none" id="noneOpt"></option>
         <option value="xml" id="xmlOpt"></option>
         <option value="json" id="jsonOpt"></option>
+      </select>
+    </div>
+    <div style="margin-bottom:1rem">
+      <label style="display:block;margin-bottom:0.5rem;font-size:0.85rem;color:#6b7280" id="forceStreamLabel"></label>
+      <select id="forceStream" onchange="updateForceStream()">
+        <option value="" id="forceStreamAutoOpt"></option>
+        <option value="stream" id="forceStreamOnOpt"></option>
+        <option value="non-stream" id="forceStreamOffOpt"></option>
       </select>
     </div>
     <div>
@@ -364,7 +382,12 @@ function applyLang() {
   document.getElementById('statusUptimeLabel').textContent = t('uptime');
   document.getElementById('statusRequestsLabel').textContent = t('requestCount');
   document.getElementById('statusMaxLenLabel').textContent = t('maxQueryLength');
+  document.getElementById('statusForceStreamLabel').textContent = t('forceStreamLabel');
   document.getElementById('configTitle').textContent = t('configTitle');
+  document.getElementById('forceStreamLabel').textContent = t('forceStreamLabel');
+  document.getElementById('forceStreamAutoOpt').textContent = t('forceStreamAuto');
+  document.getElementById('forceStreamOnOpt').textContent = t('forceStreamOn');
+  document.getElementById('forceStreamOffOpt').textContent = t('forceStreamOff');
   document.getElementById('toolcallModeLabel').textContent = t('toolcallModeLabel');
   document.getElementById('noneOpt').textContent = t('noneMode');
   document.getElementById('xmlOpt').textContent = t('xmlMode');
@@ -478,10 +501,12 @@ async function load() {
   document.getElementById('statusKeys').textContent = status.api_keys_count;
   document.getElementById('statusUptime').textContent = status.uptime_display;
   document.getElementById('statusRequests').textContent = status.request_count;
-  document.getElementById('statusMaxLen').textContent = status.max_query_length === 0 ? (lang === 'zh' ? '无限制' : '∞') : status.max_query_length;
+  document.getElementById('statusMaxLen').textContent = status.max_query_length === 0 ? (lang === 'zh' ? '无限制' : '\u221e') : status.max_query_length;
+  document.getElementById('statusForceStream').textContent = status.force_stream || (lang === 'zh' ? '自动' : 'Auto');
   const cfg = await api('GET', '/config');
   if (!cfg) return;
   document.getElementById('toolcallMode').value = cfg.toolcall_mode || 'xml';
+  document.getElementById('forceStream').value = cfg.force_stream || '';
   document.getElementById('maxQueryLength').value = cfg.max_query_length || 0;
   renderKeys(cfg.api_keys || []);
   showMain();
@@ -531,6 +556,13 @@ async function updateConfig() {
 async function updateMaxQueryLength() {
   const val = parseInt(document.getElementById('maxQueryLength').value) || 0;
   const r = await api('POST', '/config', { max_query_length: val });
+  if (r) showToast(t('saveSuccess'), 'success');
+  else showToast(t('saveFail'), 'error');
+  load();
+}
+
+async function updateForceStream() {
+  const r = await api('POST', '/config', { force_stream: document.getElementById('forceStream').value });
   if (r) showToast(t('saveSuccess'), 'success');
   else showToast(t('saveFail'), 'error');
   load();
