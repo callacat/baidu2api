@@ -411,7 +411,6 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
                         "choices": [{"index": 0, "delta": {"reasoning_content": thinking}, "finish_reason": None}],
                     }
                     yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
-                    continue
 
                 content = client.extract_content(event)
                 if content:

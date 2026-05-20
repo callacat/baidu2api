@@ -21,3 +21,4 @@ config.json
 .trae/
 server.out
 server.err
+server.debug.*
