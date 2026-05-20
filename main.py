@@ -449,6 +449,8 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
 
                 if client.is_end_turn(event) or client.is_finished(event):
                     got_end = True
+                    logger.debug("Stream end_turn: full_content_len=%d, thinking_len=%d, last_content=%s",
+                                 len(full_content), len(full_thinking), repr(full_content[-80:]))
 
                     if detector and detector.state == "tool_parsing":
                         parsed = detector.finalize()
