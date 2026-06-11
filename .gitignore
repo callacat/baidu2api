@@ -22,3 +22,7 @@ config.json
 server.out
 server.err
 server.debug.*
+
+# AI tooling metadata
+.ccg/
+.memsearch/

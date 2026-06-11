@@ -600,7 +600,17 @@ async def _non_stream_response(
         full_content = ""
         full_thinking = ""
 
-        async for event in client.chat_stream(query, model, images=images):
+        # Use __anext__() + drain pattern instead of async for + break
+        # to avoid aclose() truncating the generator epilogue (buffer flush)
+        stream = client.chat_stream(query, model, images=images).__aiter__()
+        got_end = False
+        while True:
+            try:
+                timeout = 0.5 if got_end else 120.0
+                event = await asyncio.wait_for(stream.__anext__(), timeout=timeout)
+            except (asyncio.TimeoutError, StopAsyncIteration):
+                break
+
             if event["type"] != "message":
                 continue
 
@@ -615,7 +625,9 @@ async def _non_stream_response(
                 logger.warning("extract_content returned non-str type: %s", type(content).__name__)
 
             if client.is_end_turn(event) or client.is_finished(event):
-                break
+                got_end = True
+                # Don't break — switch to short timeout to drain buffered events
+                # before the generator exits naturally
 
         if full_content or full_thinking:
             break
