@@ -1,20 +1,29 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
-## [Unreleased] - TBD
+## [1.4.0](https://github.com/callacat/baidu2api/compare/v1.3.0...v1.4.0) (2026-06-11)
 
-### Fixed
 
-- **Non-stream response drain bug**: `_non_stream_response` now uses `__anext__()` + drain pattern
-  instead of `async for + break`, preventing `aclose()` from truncating the generator epilogue
-  and losing buffered SSE events. Fixes intermittent empty content in non-stream mode.
+### Features
 
-### Changed
+* admin panel force stream/non-stream override ([0439170](https://github.com/callacat/baidu2api/commit/043917076499e08bbf1334afc041efa66e4d863f))
 
-- **GitHub Workflow**: Removed Docker Hub push (fork-specific). Only push to GHCR.
-  Added `provenance: false`/`sbom: false` to avoid permission errors.
-  Added automatic orphan image cleanup (keep 3 latest).
+
+### Bug Fixes
+
+* end_turn check skipped after thinking chunks causing content truncation ([8294ae5](https://github.com/callacat/baidu2api/commit/8294ae5f1d55ba7384fc54466da6c0f49b66b84b))
+* extract_content type safety - prevent crash on non-str returns ([4b3ad6d](https://github.com/callacat/baidu2api/commit/4b3ad6d1900b53b4da4fb0a35ef97eb03715f279))
+* flush remaining SSE buffer after HTTP stream ends ([c9cf901](https://github.com/callacat/baidu2api/commit/c9cf901956ed78d0fba5f0e7d51865abc4fe4b01))
+* handle Baidu API status>=1000 error, support new response format (generator.text) ([eeed8e5](https://github.com/callacat/baidu2api/commit/eeed8e5bb048407cb6a14e90f7c3018e94e26533))
+* JSON mode format consistency - use JSON format for tool history injection ([2fc07e0](https://github.com/callacat/baidu2api/commit/2fc07e06d94417d3f397627a3914a099d4566147))
+* JSON mode markdown block and greedy regex parsing ([a8433f8](https://github.com/callacat/baidu2api/commit/a8433f893dda7a9d02e8d3002a75c72ccaca39ae))
+* prevent non-stream response from truncating SSE buffer flush ([25df8d4](https://github.com/callacat/baidu2api/commit/25df8d4278542de069355e80d2d57d9eda51a2ce))
+* remove drain step, simplify to prevent stream truncation ([4ac78ba](https://github.com/callacat/baidu2api/commit/4ac78ba305b839806533fdc349a5d5d4528a74a1))
+* SSE charset utf-8 + ensure_ascii to prevent UTF-8 byte splitting ([122e733](https://github.com/callacat/baidu2api/commit/122e73336285c5e1aa0964ff5f40096ccc8bb028))
+* stream mode now internally uses non-stream + SSE wrapper ([3437d31](https://github.com/callacat/baidu2api/commit/3437d31d4fa16d041a1dfaa2fa37dc25208076de))
+* stream truncation - don't break on end_turn ([b7b10d5](https://github.com/callacat/baidu2api/commit/b7b10d53dd2420705080bdb517d7c448f80668c5))
+* streaming tool calls - add index field, separate content from tool_calls delta ([c9d6357](https://github.com/callacat/baidu2api/commit/c9d63573518392659cd906ab9756649dc1560e2b))
 
 ## [1.3.0] - 2026-05-19
 
