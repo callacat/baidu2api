@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.4.1](https://github.com/callacat/baidu2api/compare/v1.4.0...v1.4.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* inject SSE keepalive during deep thinking silent period to prevent stream timeout ([15205ff](https://github.com/callacat/baidu2api/commit/15205ff35c439dcaab5d6a85d986c6ba110e6351))
+
 ## [1.4.0](https://github.com/callacat/baidu2api/compare/v1.3.0...v1.4.0) (2026-06-11)
 
 
