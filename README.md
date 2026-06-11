@@ -2,6 +2,8 @@
 
 将 [chat.baidu.com](https://chat.baidu.com) 的 AI 对话能力封装为 OpenAI 兼容 API，无需登录即可使用。
 
+**Fork 自** [dijiaozhibei-top/baidu2api](https://github.com/dijiaozhibei-top/baidu2api)，在原版基础上增加了非流式响应 drain 修复、GHCR 自动构建等改进。
+
 **English**: [README_EN.md](README_EN.md)
 
 ## 功能特性

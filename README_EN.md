@@ -2,6 +2,8 @@
 
 Wrap [chat.baidu.com](https://chat.baidu.com) AI chat into an OpenAI-compatible API. No login required.
 
+**Forked from** [dijiaozhibei-top/baidu2api](https://github.com/dijiaozhibei-top/baidu2api), with non-stream drain fix and GHCR auto-build on top of the original.
+
 **中文**: [README.md](README.md)
 
 ## Features
