@@ -422,20 +422,45 @@ async def _stream_response(query: str, model: str, completion_id: str, created: 
         if detector:
             detector.reset()
         got_end = False
+        idle_deadline = time.monotonic() + 300.0  # max 300s without any real event
 
         try:
             stream = client.chat_stream(query, model, images=images).__aiter__()
             while True:
                 try:
-                    timeout = 0.5 if got_end else 120.0
-                    event = await asyncio.wait_for(stream.__anext__(), timeout=timeout)
-                except (asyncio.TimeoutError, StopAsyncIteration):
+                    timeout = 0.5 if got_end else 15.0
+                    event = await asyncio.wait_for(
+                        asyncio.shield(stream.__anext__()), timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    if not got_end:
+                        if time.monotonic() > idle_deadline:
+                            logger.warning("Keepalive timeout: no event from Baidu for 300s, giving up")
+                            break
+                        # No event from Baidu in 15s — inject keepalive to
+                        # reset downstream proxy timeouts (Nginx, ALB, Cloudflare
+                        # all default to 60-100s idle timeout).
+                        yield ": keepalive\n\n"
+                        continue
+                    break
+                except StopAsyncIteration:
                     break
 
                 if event["type"] == "basedata":
                     continue
+                if event["type"] == "ping":
+                    # Baidu's own keepalive ping — forward as SSE comment to
+                    # keep the downstream connection alive too.
+                    if time.monotonic() > idle_deadline:
+                        logger.warning("Keepalive timeout: only received ping for 300s, giving up")
+                        break
+                    yield ": keepalive\n\n"
+                    continue
                 if event["type"] != "message":
                     continue
+
+                # Got a real event — reset idle deadline
+                idle_deadline = time.monotonic() + 300.0
 
                 thinking = client.extract_thinking(event)
                 if thinking:

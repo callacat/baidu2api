@@ -333,7 +333,9 @@ class BaiduChatClient:
             elif line.startswith("data:"):
                 data_str = line[5:].strip()
 
-        if event_type == "ping" or not data_str:
+        if event_type == "ping":
+            return {"type": "ping", "data": {}}
+        if not data_str:
             return None
 
         try:
