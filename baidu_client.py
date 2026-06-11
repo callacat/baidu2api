@@ -228,7 +228,6 @@ class BaiduChatClient:
         headers = self._build_headers(query, model_name)
 
         logger.info("Request: model=%s -> %s, query_len=%d", model, model_name, len(query))
-        logger.debug("Request body query: %s", query[:200])
 
         try:
             async with client.stream(
@@ -272,10 +271,16 @@ class BaiduChatClient:
                             else:
                                 if parsed["type"] == "message":
                                     has_content = True
-                                    logger.debug("SSE message event #%d: keys=%s, component=%s",
-                                                 event_count,
-                                                 list(parsed["data"].keys()),
-                                                 self._get_component_name(parsed["data"]))
+                                    # Log the full event structure keys for diagnostics
+                                    keys = list(parsed["data"].keys())
+                                    data_keys = list(parsed["data"].get("data", {}).keys())
+                                    msg_keys = list(parsed["data"].get("data", {}).get("message", {}).keys())
+                                    content_keys = list(parsed["data"].get("data", {}).get("message", {}).get("content", {}).keys())
+                                    generator_keys = list(parsed["data"].get("data", {}).get("message", {}).get("content", {}).get("generator", {}).keys())
+                                    comp = self._get_component_name(parsed["data"])
+                                    has_text = bool(parsed["data"].get("data", {}).get("message", {}).get("content", {}).get("generator", {}).get("text"))
+                                    logger.debug("SSE msg #%d: component=%s, top_keys=%s, gen_keys=%s, has_text=%s",
+                                                 event_count, comp, data_keys, generator_keys, has_text)
                                 yield parsed
 
                 raw_total = "".join(raw_chunks)
