@@ -266,7 +266,18 @@ class BaiduChatClient:
                                 parsed["type"] == "message"
                                 and parsed["data"].get("status", 0) >= 1000
                             ):
-                                logger.warning("Baidu API error (status=%d)", parsed["data"].get("status"))
+                                status = parsed["data"].get("status")
+                                logger.warning("Baidu API error (status=%d)", status)
+                                # 1005+ errors are non-recoverable — raise immediately
+                                # instead of retrying into an empty response.
+                                if status == 1005:
+                                    # Log the full payload to capture the real Baidu error
+                                    error_payload = json.dumps(parsed["data"], ensure_ascii=False, default=str)[:500]
+                                    logger.error("Baidu status=1005 full payload: %s", error_payload)
+                                    raise RuntimeError(
+                                        f"Baidu API returned status={status}. "
+                                        f"Payload: {error_payload}"
+                                    )
                                 token_failed = True
                             else:
                                 if parsed["type"] == "message":
